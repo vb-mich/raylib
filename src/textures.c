@@ -191,6 +191,69 @@ static Image LoadASTC(const char *fileName);  // Load ASTC file
 // Module Functions Definition
 //----------------------------------------------------------------------------------
 
+// Load an image from RAW file data
+Image LoadImageRawFromBuffer(unsigned char* fileData, unsigned int dataSize, int width, int height, int format, int headerSize)
+{
+    Image image = { 0 };
+
+    if (fileData != NULL && dataSize > 0)
+    {
+        unsigned char* dataPtr = fileData;
+        unsigned int size = GetPixelDataSize(width, height, format);
+
+        if (headerSize > 0) dataPtr += headerSize;
+
+        image.data = RL_MALLOC(size);      // Allocate required memory in bytes
+        memcpy(image.data, dataPtr, size); // Copy required data to image
+        image.width = width;
+        image.height = height;
+        image.mipmaps = 1;
+        image.format = format;
+    }
+
+    return image;
+}
+
+// Load image from RAM
+Image LoadImageFromBuffer(unsigned char* fileData, unsigned int dataSize)
+{
+    Image image = { 0 };
+#if defined(SUPPORT_FILEFORMAT_PNG) || \
+    defined(SUPPORT_FILEFORMAT_BMP) || \
+    defined(SUPPORT_FILEFORMAT_TGA) || \
+    defined(SUPPORT_FILEFORMAT_JPG) || \
+    defined(SUPPORT_FILEFORMAT_GIF) || \
+    defined(SUPPORT_FILEFORMAT_PIC) || \
+    defined(SUPPORT_FILEFORMAT_HDR) || \
+    defined(SUPPORT_FILEFORMAT_PSD)
+#define STBI_REQUIRED
+#endif
+
+#if defined(STBI_REQUIRED)
+    // NOTE: Using stb_image to load images (Supports multiple image formats)
+
+    if (fileData != NULL)
+    {
+        int comp = 0;
+        image.data = stbi_load_from_memory(fileData, dataSize, &image.width, &image.height, &comp, 0);
+
+        image.mipmaps = 1;
+
+        if (comp == 1) image.format = UNCOMPRESSED_GRAYSCALE;
+        else if (comp == 2) image.format = UNCOMPRESSED_GRAY_ALPHA;
+        else if (comp == 3) image.format = UNCOMPRESSED_R8G8B8;
+        else if (comp == 4) image.format = UNCOMPRESSED_R8G8B8A8;
+
+    }
+#endif
+    if (image.data != NULL) 
+        TRACELOG(LOG_INFO, "IMAGE: [0x%x] Data loaded successfully (%ix%i)", fileData, image.width, image.height);
+    else 
+        TRACELOG(LOG_WARNING, "IMAGE: [0x%x] Failed to load data", fileData);
+
+    return image;
+}
+
 // Load image from file into CPU memory (RAM)
 Image LoadImage(const char *fileName)
 {
