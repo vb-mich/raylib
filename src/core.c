@@ -367,7 +367,9 @@ typedef struct CoreData {
         char **dropFilesPath;               // Store dropped files paths as strings
         int dropFilesCount;                 // Count dropped files strings
 
-    } Window;
+    } Window[MAX_CONTEXTS];
+    unsigned int currentWindow;
+    unsigned int numWindows;
 #if defined(PLATFORM_ANDROID)
     struct {
         bool appEnabled;                    // Flag to detect if app is active ** = true
@@ -620,8 +622,9 @@ void InitWindow(int width, int height, const char *title)
 #endif
 
     TRACELOG(LOG_INFO, "Initializing raylib %s", RAYLIB_VERSION);
-
-    CORE.Window.title = title;
+    
+    CORE.currentWindow = CORE.numWindows;
+    CORE.Window[CORE.currentWindow].title = title;
 
     // Initialize required global values different than 0
     CORE.Input.Keyboard.exitKey = KEY_ESCAPE;
@@ -634,10 +637,10 @@ void InitWindow(int width, int height, const char *title)
 #endif
 
 #if defined(PLATFORM_ANDROID)
-    CORE.Window.screen.width = width;
-    CORE.Window.screen.height = height;
-    CORE.Window.currentFbo.width = width;
-    CORE.Window.currentFbo.height = height;
+    CORE.Window[CORE.currentWindow].screen.width = width;
+    CORE.Window[CORE.currentWindow].screen.height = height;
+    CORE.Window[CORE.currentWindow].currentFbo.width = width;
+    CORE.Window[CORE.currentWindow].currentFbo.height = height;
 
     // Input data is android app pointer
     CORE.Android.internalDataPath = CORE.Android.app->activity->internalDataPath;
@@ -679,7 +682,7 @@ void InitWindow(int width, int height, const char *title)
     int pollEvents = 0;
 
     // Wait for window to be initialized (display and context)
-    while (!CORE.Window.ready)
+    while (!CORE.Window[CORE.currentWindow].ready)
     {
         // Process events loop
         while ((pollResult = ALooper_pollAll(0, NULL, &pollEvents, (void**)&CORE.Android.source)) >= 0)
@@ -688,27 +691,29 @@ void InitWindow(int width, int height, const char *title)
             if (CORE.Android.source != NULL) CORE.Android.source->process(CORE.Android.app, CORE.Android.source);
 
             // NOTE: Never close window, native activity is controlled by the system!
-            //if (CORE.Android.app->destroyRequested != 0) CORE.Window.shouldClose = true;
+            //if (CORE.Android.app->destroyRequested != 0) CORE.Window[CORE.currentWindow].shouldClose = true;
         }
     }
 #else
     // Init graphics device (display device and OpenGL context)
     // NOTE: returns true if window and graphic device has been initialized successfully
-    CORE.Window.ready = InitGraphicsDevice(width, height);
-
-    if (!CORE.Window.ready) return;
-    else CORE.Window.focused = true;
-
+    CORE.Window[CORE.numWindows].ready = InitGraphicsDevice(width, height);
+    CORE.numWindows++;
+    if (!CORE.Window[CORE.currentWindow].ready) return;
+    else CORE.Window[CORE.currentWindow].focused = true;
     // Init hi-res timer
     InitTimer();
 
 #if defined(SUPPORT_DEFAULT_FONT)
-    // Load default font
-    // NOTE: External functions (defined in module: text)
-    LoadFontDefault();
-    Rectangle rec = GetFontDefault().recs[95];
-    // NOTE: We setup a 1px padding on char rectangle to avoid pixel bleeding on MSAA filtering
-    SetShapesTexture(GetFontDefault().texture, (Rectangle){ rec.x + 1, rec.y + 1, rec.width - 2, rec.height - 2 });
+    if (CORE.currentWindow == 0) //load fonts only the first time
+    {
+        // Load default font
+        // NOTE: External functions (defined in module: text)
+        LoadFontDefault();
+        Rectangle rec = GetFontDefault().recs[95];
+        // NOTE: We setup a 1px padding on char rectangle to avoid pixel bleeding on MSAA filtering
+        SetShapesTexture(GetFontDefault().texture, (Rectangle) { rec.x + 1, rec.y + 1, rec.width - 2, rec.height - 2 });
+    }
 #endif
 #if defined(PLATFORM_DESKTOP) && defined(SUPPORT_HIGH_DPI)
     // Set default font texture filter for HighDPI (blurry)
@@ -748,9 +753,10 @@ void InitWindow(int width, int height, const char *title)
     emscripten_set_gamepaddisconnected_callback(NULL, 1, EmscriptenGamepadCallback);
 #endif
 
-    CORE.Input.Mouse.position.x = (float)CORE.Window.screen.width/2.0f;
-    CORE.Input.Mouse.position.y = (float)CORE.Window.screen.height/2.0f;
+    CORE.Input.Mouse.position.x = (float)CORE.Window[CORE.currentWindow].screen.width/2.0f;
+    CORE.Input.Mouse.position.y = (float)CORE.Window[CORE.currentWindow].screen.height/2.0f;
 #endif        // PLATFORM_ANDROID
+    glfwMakeContextCurrent(CORE.Window[0].handle); //switch to the main context, 
 }
 
 // Close window and unload OpenGL context
@@ -771,7 +777,7 @@ void CloseWindow(void)
     rlglClose();                // De-init rlgl
 
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
-    glfwDestroyWindow(CORE.Window.handle);
+    glfwDestroyWindow(CORE.Window[CORE.currentWindow].handle);
     glfwTerminate();
 #endif
 
@@ -781,33 +787,33 @@ void CloseWindow(void)
 
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_RPI) || defined(PLATFORM_UWP)
     // Close surface, context and display
-    if (CORE.Window.device != EGL_NO_DISPLAY)
+    if (CORE.Window[CORE.currentWindow].device != EGL_NO_DISPLAY)
     {
-        eglMakeCurrent(CORE.Window.device, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglMakeCurrent(CORE.Window[CORE.currentWindow].device, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
-        if (CORE.Window.surface != EGL_NO_SURFACE)
+        if (CORE.Window[CORE.currentWindow].surface != EGL_NO_SURFACE)
         {
-            eglDestroySurface(CORE.Window.device, CORE.Window.surface);
-            CORE.Window.surface = EGL_NO_SURFACE;
+            eglDestroySurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface);
+            CORE.Window[CORE.currentWindow].surface = EGL_NO_SURFACE;
         }
 
-        if (CORE.Window.context != EGL_NO_CONTEXT)
+        if (CORE.Window[CORE.currentWindow].context != EGL_NO_CONTEXT)
         {
-            eglDestroyContext(CORE.Window.device, CORE.Window.context);
-            CORE.Window.context = EGL_NO_CONTEXT;
+            eglDestroyContext(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].context);
+            CORE.Window[CORE.currentWindow].context = EGL_NO_CONTEXT;
         }
 
-        eglTerminate(CORE.Window.device);
-        CORE.Window.device = EGL_NO_DISPLAY;
+        eglTerminate(CORE.Window[CORE.currentWindow].device);
+        CORE.Window[CORE.currentWindow].device = EGL_NO_DISPLAY;
     }
 #endif
 
 #if defined(PLATFORM_RPI)
     // Wait for mouse and gamepad threads to finish before closing
     // NOTE: Those threads should already have finished at this point
-    // because they are controlled by CORE.Window.shouldClose variable
+    // because they are controlled by CORE.Window[CORE.currentWindow].shouldClose variable
 
-    CORE.Window.shouldClose = true;   // Added to force threads to exit when the close window is called
+    CORE.Window[CORE.currentWindow].shouldClose = true;   // Added to force threads to exit when the close window is called
 
     for (int i = 0; i < sizeof(CORE.Input.eventWorker)/sizeof(InputEventWorker); ++i)
     {
@@ -826,7 +832,7 @@ void CloseWindow(void)
 // Check if window has been initialized successfully
 bool IsWindowReady(void)
 {
-    return CORE.Window.ready;
+    return CORE.Window[CORE.currentWindow].ready;
 }
 
 // Check if KEY_ESCAPE pressed or Close icon pressed
@@ -843,20 +849,20 @@ bool WindowShouldClose(void)
 #endif
 
 #if defined(PLATFORM_DESKTOP)
-    if (CORE.Window.ready)
+    if (CORE.Window[CORE.currentWindow].ready)
     {
         // While window minimized, stop loop execution
-        while (!CORE.Window.alwaysRun && CORE.Window.minimized) glfwWaitEvents();
+        while (!CORE.Window[CORE.currentWindow].alwaysRun && CORE.Window[CORE.currentWindow].minimized) glfwWaitEvents();
 
-        CORE.Window.shouldClose = glfwWindowShouldClose(CORE.Window.handle);
+        CORE.Window[CORE.currentWindow].shouldClose = glfwWindowShouldClose(CORE.Window[CORE.currentWindow].handle);
 
-        return CORE.Window.shouldClose;
+        return CORE.Window[CORE.currentWindow].shouldClose;
     }
     else return true;
 #endif
 
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_RPI) || defined(PLATFORM_UWP)
-    if (CORE.Window.ready) return CORE.Window.shouldClose;
+    if (CORE.Window[CORE.currentWindow].ready) return CORE.Window[CORE.currentWindow].shouldClose;
     else return true;
 #endif
 }
@@ -865,7 +871,7 @@ bool WindowShouldClose(void)
 bool IsWindowMinimized(void)
 {
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB) || defined(PLATFORM_UWP)
-    return CORE.Window.minimized;
+    return CORE.Window[CORE.currentWindow].minimized;
 #else
     return false;
 #endif
@@ -875,7 +881,7 @@ bool IsWindowMinimized(void)
 bool IsWindowFocused(void)
 {
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB) || defined(PLATFORM_UWP)
-    return CORE.Window.focused;
+    return CORE.Window[CORE.currentWindow].focused;
 #else
     return false;
 #endif
@@ -885,7 +891,7 @@ bool IsWindowFocused(void)
 bool IsWindowResized(void)
 {
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB) || defined(PLATFORM_UWP)
-    return CORE.Window.resized;
+    return CORE.Window[CORE.currentWindow].resized;
 #else
     return false;
 #endif
@@ -895,7 +901,7 @@ bool IsWindowResized(void)
 bool IsWindowHidden(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    return (glfwGetWindowAttrib(CORE.Window.handle, GLFW_VISIBLE) == GLFW_FALSE);
+    return (glfwGetWindowAttrib(CORE.Window[CORE.currentWindow].handle, GLFW_VISIBLE) == GLFW_FALSE);
 #endif
     return false;
 }
@@ -903,7 +909,7 @@ bool IsWindowHidden(void)
 // Check if window is currently fullscreen
 bool IsWindowFullscreen(void)
 {
-    return CORE.Window.fullscreen;
+    return CORE.Window[CORE.currentWindow].fullscreen;
 }
 
 // Toggle fullscreen mode (only PLATFORM_DESKTOP)
@@ -911,27 +917,27 @@ void ToggleFullscreen(void)
 {
 #if defined(PLATFORM_DESKTOP)
     // NOTE: glfwSetWindowMonitor() doesn't work properly (bugs)
-    if (!CORE.Window.fullscreen)
+    if (!CORE.Window[CORE.currentWindow].fullscreen)
     {
         // Store previous window position (in case we exit fullscreen)
-        glfwGetWindowPos(CORE.Window.handle, &CORE.Window.position.x, &CORE.Window.position.y);
+        glfwGetWindowPos(CORE.Window[CORE.currentWindow].handle, &CORE.Window[CORE.currentWindow].position.x, &CORE.Window[CORE.currentWindow].position.y);
 
         GLFWmonitor *monitor = glfwGetPrimaryMonitor();
         if (!monitor)
         {
             TRACELOG(LOG_WARNING, "GLFW: Failed to get monitor");
-            glfwSetWindowMonitor(CORE.Window.handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window.screen.width, CORE.Window.screen.height, GLFW_DONT_CARE);
+            glfwSetWindowMonitor(CORE.Window[CORE.currentWindow].handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, GLFW_DONT_CARE);
             return;
         }
 
         const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-        glfwSetWindowMonitor(CORE.Window.handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window.screen.width, CORE.Window.screen.height, mode->refreshRate);
+        glfwSetWindowMonitor(CORE.Window[CORE.currentWindow].handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, mode->refreshRate);
 
         // Try to enable GPU V-Sync, so frames are limited to screen refresh rate (60Hz -> 60 FPS)
         // NOTE: V-Sync can be enabled by graphic driver configuration
-        if (CORE.Window.flags & FLAG_VSYNC_HINT) glfwSwapInterval(1);
+        if (CORE.Window[CORE.currentWindow].flags & FLAG_VSYNC_HINT) glfwSwapInterval(1);
     }
-    else glfwSetWindowMonitor(CORE.Window.handle, NULL, CORE.Window.position.x, CORE.Window.position.y, CORE.Window.screen.width, CORE.Window.screen.height, GLFW_DONT_CARE);
+    else glfwSetWindowMonitor(CORE.Window[CORE.currentWindow].handle, NULL, CORE.Window[CORE.currentWindow].position.x, CORE.Window[CORE.currentWindow].position.y, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, GLFW_DONT_CARE);
 #endif
 #if defined(PLATFORM_WEB)
     /*
@@ -944,7 +950,7 @@ void ToggleFullscreen(void)
     //EM_ASM(Module.requestFullscreen(false, false););
 
     /*
-    if (!CORE.Window.fullscreen)
+    if (!CORE.Window[CORE.currentWindow].fullscreen)
     {
         //https://github.com/emscripten-core/emscripten/issues/5124
         EmscriptenFullscreenStrategy strategy = {
@@ -971,7 +977,7 @@ void ToggleFullscreen(void)
     TRACELOG(LOG_WARNING, "SYSTEM: Failed to toggle to windowed mode");
 #endif
 
-    CORE.Window.fullscreen = !CORE.Window.fullscreen;          // Toggle fullscreen flag
+    CORE.Window[CORE.currentWindow].fullscreen = !CORE.Window[CORE.currentWindow].fullscreen;          // Toggle fullscreen flag
 }
 
 // Set icon for window (only PLATFORM_DESKTOP)
@@ -989,7 +995,7 @@ void SetWindowIcon(Image image)
 
         // NOTE 1: We only support one image icon
         // NOTE 2: The specified image data is copied before this function returns
-        glfwSetWindowIcon(CORE.Window.handle, 1, icon);
+        glfwSetWindowIcon(CORE.Window[CORE.currentWindow].handle, 1, icon);
     }
     else TRACELOG(LOG_WARNING, "GLFW: Window icon image must be in R8G8B8A8 pixel format");
 #endif
@@ -998,9 +1004,9 @@ void SetWindowIcon(Image image)
 // Set title for window (only PLATFORM_DESKTOP)
 void SetWindowTitle(const char *title)
 {
-    CORE.Window.title = title;
+    CORE.Window[CORE.currentWindow].title = title;
 #if defined(PLATFORM_DESKTOP)
-    glfwSetWindowTitle(CORE.Window.handle, title);
+    glfwSetWindowTitle(CORE.Window[CORE.currentWindow].handle, title);
 #endif
 }
 
@@ -1008,7 +1014,7 @@ void SetWindowTitle(const char *title)
 void SetWindowPosition(int x, int y)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetWindowPos(CORE.Window.handle, x, y);
+    glfwSetWindowPos(CORE.Window[CORE.currentWindow].handle, x, y);
 #endif
 }
 
@@ -1024,7 +1030,7 @@ void SetWindowMonitor(int monitor)
         TRACELOG(LOG_INFO, "GLFW: Selected fullscreen monitor: [%i] %s", monitor, glfwGetMonitorName(monitors[monitor]));
 
         const GLFWvidmode *mode = glfwGetVideoMode(monitors[monitor]);
-        glfwSetWindowMonitor(CORE.Window.handle, monitors[monitor], 0, 0, mode->width, mode->height, mode->refreshRate);
+        glfwSetWindowMonitor(CORE.Window[CORE.currentWindow].handle, monitors[monitor], 0, 0, mode->width, mode->height, mode->refreshRate);
     }
     else TRACELOG(LOG_WARNING, "GLFW: Failed to find selected monitor");
 #endif
@@ -1035,7 +1041,7 @@ void SetWindowMinSize(int width, int height)
 {
 #if defined(PLATFORM_DESKTOP)
     const GLFWvidmode *mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-    glfwSetWindowSizeLimits(CORE.Window.handle, width, height, mode->width, mode->height);
+    glfwSetWindowSizeLimits(CORE.Window[CORE.currentWindow].handle, width, height, mode->width, mode->height);
 #endif
 }
 
@@ -1044,7 +1050,7 @@ void SetWindowMinSize(int width, int height)
 void SetWindowSize(int width, int height)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetWindowSize(CORE.Window.handle, width, height);
+    glfwSetWindowSize(CORE.Window[CORE.currentWindow].handle, width, height);
 #endif
 #if defined(PLATFORM_WEB)
     emscripten_set_canvas_size(width, height);  // DEPRECATED!
@@ -1060,7 +1066,7 @@ void SetWindowSize(int width, int height)
 void UnhideWindow(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwShowWindow(CORE.Window.handle);
+    glfwShowWindow(CORE.Window[CORE.currentWindow].handle);
 #endif
 }
 
@@ -1068,20 +1074,20 @@ void UnhideWindow(void)
 void HideWindow(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwHideWindow(CORE.Window.handle);
+    glfwHideWindow(CORE.Window[CORE.currentWindow].handle);
 #endif
 }
 
 // Get current screen width
 int GetScreenWidth(void)
 {
-    return CORE.Window.screen.width;
+    return CORE.Window[CORE.currentWindow].screen.width;
 }
 
 // Get current screen height
 int GetScreenHeight(void)
 {
-    return CORE.Window.screen.height;
+    return CORE.Window[CORE.currentWindow].screen.height;
 }
 
 // Get native window handle
@@ -1089,7 +1095,7 @@ void *GetWindowHandle(void)
 {
 #if defined(PLATFORM_DESKTOP) && defined(_WIN32)
     // NOTE: Returned handle is: void *HWND (windows.h)
-    return glfwGetWin32Window(CORE.Window.handle);
+    return glfwGetWin32Window(CORE.Window[CORE.currentWindow].handle);
 #elif defined(__linux__)
     // NOTE: Returned handle is: unsigned long Window (X.h)
     // typedef unsigned long XID;
@@ -1208,7 +1214,7 @@ Vector2 GetWindowPosition(void)
     int x = 0;
     int y = 0;
 #if defined(PLATFORM_DESKTOP)
-    glfwGetWindowPos(CORE.Window.handle, &x, &y);
+    glfwGetWindowPos(CORE.Window[CORE.currentWindow].handle, &x, &y);
 #endif
     return (Vector2){ (float)x, (float)y };
 }
@@ -1249,7 +1255,7 @@ const char *GetMonitorName(int monitor)
 const char *GetClipboardText(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    return glfwGetClipboardString(CORE.Window.handle);
+    return glfwGetClipboardString(CORE.Window[CORE.currentWindow].handle);
 #else
     return NULL;
 #endif
@@ -1259,7 +1265,7 @@ const char *GetClipboardText(void)
 void SetClipboardText(const char *text)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetClipboardString(CORE.Window.handle, text);
+    glfwSetClipboardString(CORE.Window[CORE.currentWindow].handle, text);
 #endif
 }
 
@@ -1267,7 +1273,7 @@ void SetClipboardText(const char *text)
 void ShowCursor(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetInputMode(CORE.Window.handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    glfwSetInputMode(CORE.Window[CORE.currentWindow].handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 #endif
 #if defined(PLATFORM_UWP)
     UWPGetMouseShowFunc()();
@@ -1279,7 +1285,7 @@ void ShowCursor(void)
 void HideCursor(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetInputMode(CORE.Window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+    glfwSetInputMode(CORE.Window[CORE.currentWindow].handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 #endif
 #if defined(PLATFORM_UWP)
     UWPGetMouseHideFunc()();
@@ -1297,7 +1303,7 @@ bool IsCursorHidden(void)
 void EnableCursor(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetInputMode(CORE.Window.handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    glfwSetInputMode(CORE.Window[CORE.currentWindow].handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 #endif
 #if defined(PLATFORM_UWP)
     UWPGetMouseUnlockFunc()();
@@ -1309,7 +1315,7 @@ void EnableCursor(void)
 void DisableCursor(void)
 {
 #if defined(PLATFORM_DESKTOP)
-    glfwSetInputMode(CORE.Window.handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(CORE.Window[CORE.currentWindow].handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 #endif
 #if defined(PLATFORM_UWP)
     UWPGetMouseLockFunc()();
@@ -1331,14 +1337,18 @@ void ClearBackground(Color color)
 }
 
 // Setup canvas (framebuffer) to start drawing
-void BeginDrawing(void)
+void BeginDrawing(unsigned int contextID)
 {
+    CORE.currentWindow = contextID;
+    rlSetContext(contextID);
+    glfwMakeContextCurrent(CORE.Window[CORE.currentWindow].handle);
+
     CORE.Time.current = GetTime();            // Number of elapsed seconds since InitTimer()
     CORE.Time.update = CORE.Time.current - CORE.Time.previous;
     CORE.Time.previous = CORE.Time.current;
 
     rlLoadIdentity();                   // Reset current matrix (modelview)
-    rlMultMatrixf(MatrixToFloat(CORE.Window.screenScale)); // Apply screen scaling
+    rlMultMatrixf(MatrixToFloat(CORE.Window[CORE.currentWindow].screenScale)); // Apply screen scaling
 
     //rlTranslatef(0.375, 0.375, 0);    // HACK to have 2D pixel-perfect drawing on OpenGL 1.1
                                         // NOTE: Not required with OpenGL 3.3+
@@ -1367,16 +1377,16 @@ void EndDrawing(void)
         {
             // Get image data for the current frame (from backbuffer)
             // NOTE: This process is very slow... :(
-            unsigned char *screenData = rlReadScreenPixels(CORE.Window.screen.width, CORE.Window.screen.height);
-            GifWriteFrame(screenData, CORE.Window.screen.width, CORE.Window.screen.height, 10, 8, false);
+            unsigned char *screenData = rlReadScreenPixels(CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height);
+            GifWriteFrame(screenData, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, 10, 8, false);
 
             RL_FREE(screenData);   // Free image data
         }
 
         if (((gifFramesCounter/15)%2) == 1)
         {
-            DrawCircle(30, CORE.Window.screen.height - 20, 10, RED);
-            DrawText("RECORDING", 50, CORE.Window.screen.height - 25, 10, MAROON);
+            DrawCircle(30, CORE.Window[CORE.currentWindow].screen.height - 20, 10, RED);
+            DrawText("RECORDING", 50, CORE.Window[CORE.currentWindow].screen.height - 25, 10, MAROON);
         }
 
         rlglDraw();                 // Draw RECORDING message
@@ -1417,7 +1427,7 @@ void BeginMode2D(Camera2D camera)
     rlMultMatrixf(MatrixToFloat(GetCameraMatrix2D(camera)));
 
     // Apply screen scaling if required
-    rlMultMatrixf(MatrixToFloat(CORE.Window.screenScale));
+    rlMultMatrixf(MatrixToFloat(CORE.Window[CORE.currentWindow].screenScale));
 }
 
 // Ends 2D mode with custom camera
@@ -1426,7 +1436,7 @@ void EndMode2D(void)
     rlglDraw();                         // Draw Buffers (Only OpenGL 3+ and ES2)
 
     rlLoadIdentity();                   // Reset current matrix (modelview)
-    rlMultMatrixf(MatrixToFloat(CORE.Window.screenScale)); // Apply screen scaling if required
+    rlMultMatrixf(MatrixToFloat(CORE.Window[CORE.currentWindow].screenScale)); // Apply screen scaling if required
 }
 
 // Initializes 3D mode with custom camera (3D)
@@ -1438,7 +1448,7 @@ void BeginMode3D(Camera3D camera)
     rlPushMatrix();                     // Save previous matrix, which contains the settings for the 2d ortho projection
     rlLoadIdentity();                   // Reset current matrix (projection)
 
-    float aspect = (float)CORE.Window.currentFbo.width/(float)CORE.Window.currentFbo.height;
+    float aspect = (float)CORE.Window[CORE.currentWindow].currentFbo.width/(float)CORE.Window[CORE.currentWindow].currentFbo.height;
 
     if (camera.type == CAMERA_PERSPECTIVE)
     {
@@ -1480,7 +1490,7 @@ void EndMode3D(void)
     rlMatrixMode(RL_MODELVIEW);         // Switch back to modelview matrix
     rlLoadIdentity();                   // Reset current matrix (modelview)
 
-    rlMultMatrixf(MatrixToFloat(CORE.Window.screenScale)); // Apply screen scaling if required
+    rlMultMatrixf(MatrixToFloat(CORE.Window[CORE.currentWindow].screenScale)); // Apply screen scaling if required
 
     rlDisableDepthTest();               // Disable DEPTH_TEST for 2D
 }
@@ -1509,8 +1519,8 @@ void BeginTextureMode(RenderTexture2D target)
 
     // Setup current width/height for proper aspect ratio
     // calculation when using BeginMode3D()
-    CORE.Window.currentFbo.width = target.texture.width;
-    CORE.Window.currentFbo.height = target.texture.height;
+    CORE.Window[CORE.currentWindow].currentFbo.width = target.texture.width;
+    CORE.Window[CORE.currentWindow].currentFbo.height = target.texture.height;
 }
 
 // Ends drawing to render texture
@@ -1521,11 +1531,11 @@ void EndTextureMode(void)
     rlDisableRenderTexture();           // Disable render target
 
     // Set viewport to default framebuffer size
-    SetupViewport(CORE.Window.render.width, CORE.Window.render.height);
+    SetupViewport(CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height);
 
     // Reset current screen size
-    CORE.Window.currentFbo.width = GetScreenWidth();
-    CORE.Window.currentFbo.height = GetScreenHeight();
+    CORE.Window[CORE.currentWindow].currentFbo.width = GetScreenWidth();
+    CORE.Window[CORE.currentWindow].currentFbo.height = GetScreenHeight();
 }
 
 // Begin scissor mode (define screen area for following drawing)
@@ -1535,7 +1545,7 @@ void BeginScissorMode(int x, int y, int width, int height)
     rlglDraw(); // Force drawing elements
 
     rlEnableScissorTest();
-    rlScissor(x, CORE.Window.currentFbo.height - (y + height), width, height);
+    rlScissor(x, CORE.Window[CORE.currentWindow].currentFbo.height - (y + height), width, height);
 }
 
 // End scissor mode
@@ -1571,7 +1581,7 @@ Ray GetMouseRay(Vector2 mouse, Camera camera)
     }
     else if (camera.type == CAMERA_ORTHOGRAPHIC)
     {
-        float aspect = (float)CORE.Window.screen.width/(float)CORE.Window.screen.height;
+        float aspect = (float)CORE.Window[CORE.currentWindow].screen.width/(float)CORE.Window[CORE.currentWindow].screen.height;
         double top = camera.fovy/2.0;
         double right = top*aspect;
 
@@ -1655,7 +1665,7 @@ Vector2 GetWorldToScreenEx(Vector3 position, Camera camera, int width, int heigh
     }
     else if (camera.type == CAMERA_ORTHOGRAPHIC)
     {
-        float aspect = (float)CORE.Window.screen.width/(float)CORE.Window.screen.height;
+        float aspect = (float)CORE.Window[CORE.currentWindow].screen.width/(float)CORE.Window[CORE.currentWindow].screen.height;
         double top = camera.fovy/2.0;
         double right = top*aspect;
 
@@ -1769,10 +1779,10 @@ double GetTime(void)
 // Setup window configuration flags (view FLAGS)
 void SetConfigFlags(unsigned int flags)
 {
-    CORE.Window.flags = flags;
+    CORE.Window[CORE.currentWindow].flags = flags;
 
-    if (CORE.Window.flags & FLAG_FULLSCREEN_MODE) CORE.Window.fullscreen = true;
-    if (CORE.Window.flags & FLAG_WINDOW_ALWAYS_RUN) CORE.Window.alwaysRun = true;
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_FULLSCREEN_MODE) CORE.Window[CORE.currentWindow].fullscreen = true;
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_WINDOW_ALWAYS_RUN) CORE.Window[CORE.currentWindow].alwaysRun = true;
 }
 
 // NOTE TRACELOG() function is located in [utils.h]
@@ -1782,8 +1792,8 @@ void SetConfigFlags(unsigned int flags)
 // have their own internal file-systems, to dowload image to user file-system some additional mechanism is required
 void TakeScreenshot(const char *fileName)
 {
-    unsigned char *imgData = rlReadScreenPixels(CORE.Window.render.width, CORE.Window.render.height);
-    Image image = { imgData, CORE.Window.render.width, CORE.Window.render.height, 1, UNCOMPRESSED_R8G8B8A8 };
+    unsigned char *imgData = rlReadScreenPixels(CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height);
+    Image image = { imgData, CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height, 1, UNCOMPRESSED_R8G8B8A8 };
 
     char path[512] = { 0 };
 #if defined(PLATFORM_ANDROID)
@@ -2071,27 +2081,27 @@ bool ChangeDirectory(const char *dir)
 // Check if a file has been dropped into window
 bool IsFileDropped(void)
 {
-    if (CORE.Window.dropFilesCount > 0) return true;
+    if (CORE.Window[CORE.currentWindow].dropFilesCount > 0) return true;
     else return false;
 }
 
 // Get dropped files names
 char **GetDroppedFiles(int *count)
 {
-    *count = CORE.Window.dropFilesCount;
-    return CORE.Window.dropFilesPath;
+    *count = CORE.Window[CORE.currentWindow].dropFilesCount;
+    return CORE.Window[CORE.currentWindow].dropFilesPath;
 }
 
 // Clear dropped files paths buffer
 void ClearDroppedFiles(void)
 {
-    if (CORE.Window.dropFilesCount > 0)
+    if (CORE.Window[CORE.currentWindow].dropFilesCount > 0)
     {
-        for (int i = 0; i < CORE.Window.dropFilesCount; i++) RL_FREE(CORE.Window.dropFilesPath[i]);
+        for (int i = 0; i < CORE.Window[CORE.currentWindow].dropFilesCount; i++) RL_FREE(CORE.Window[CORE.currentWindow].dropFilesPath[i]);
 
-        RL_FREE(CORE.Window.dropFilesPath);
+        RL_FREE(CORE.Window[CORE.currentWindow].dropFilesPath);
 
-        CORE.Window.dropFilesCount = 0;
+        CORE.Window[CORE.currentWindow].dropFilesCount = 0;
     }
 }
 
@@ -2566,7 +2576,7 @@ void SetMousePosition(int x, int y)
     CORE.Input.Mouse.position = (Vector2){ (float)x, (float)y };
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
     // NOTE: emscripten not implemented
-    glfwSetCursorPos(CORE.Window.handle, CORE.Input.Mouse.position.x, CORE.Input.Mouse.position.y);
+    glfwSetCursorPos(CORE.Window[CORE.currentWindow].handle, CORE.Input.Mouse.position.x, CORE.Input.Mouse.position.y);
 #endif
 #if defined(PLATFORM_UWP)
     UWPGetMouseSetPosFunc()(x, y);
@@ -2630,15 +2640,15 @@ Vector2 GetTouchPosition(int index)
     else TRACELOG(LOG_WARNING, "INPUT: Required touch point out of range (Max touch points: %i)", MAX_TOUCH_POINTS);
 
     #if defined(PLATFORM_ANDROID)
-    if ((CORE.Window.screen.width > CORE.Window.display.width) || (CORE.Window.screen.height > CORE.Window.display.height))
+    if ((CORE.Window[CORE.currentWindow].screen.width > CORE.Window[CORE.currentWindow].display.width) || (CORE.Window[CORE.currentWindow].screen.height > CORE.Window[CORE.currentWindow].display.height))
     {
-        position.x = position.x*((float)CORE.Window.screen.width/(float)(CORE.Window.display.width - CORE.Window.renderOffset.x)) - CORE.Window.renderOffset.x/2;
-        position.y = position.y*((float)CORE.Window.screen.height/(float)(CORE.Window.display.height - CORE.Window.renderOffset.y)) - CORE.Window.renderOffset.y/2;
+        position.x = position.x*((float)CORE.Window[CORE.currentWindow].screen.width/(float)(CORE.Window[CORE.currentWindow].display.width - CORE.Window[CORE.currentWindow].renderOffset.x)) - CORE.Window[CORE.currentWindow].renderOffset.x/2;
+        position.y = position.y*((float)CORE.Window[CORE.currentWindow].screen.height/(float)(CORE.Window[CORE.currentWindow].display.height - CORE.Window[CORE.currentWindow].renderOffset.y)) - CORE.Window[CORE.currentWindow].renderOffset.y/2;
     }
     else
     {
-        position.x = position.x*((float)CORE.Window.render.width/(float)CORE.Window.display.width) - CORE.Window.renderOffset.x/2;
-        position.y = position.y*((float)CORE.Window.render.height/(float)CORE.Window.display.height) - CORE.Window.renderOffset.y/2;
+        position.x = position.x*((float)CORE.Window[CORE.currentWindow].render.width/(float)CORE.Window[CORE.currentWindow].display.width) - CORE.Window[CORE.currentWindow].renderOffset.x/2;
+        position.y = position.y*((float)CORE.Window[CORE.currentWindow].render.height/(float)CORE.Window[CORE.currentWindow].display.height) - CORE.Window[CORE.currentWindow].renderOffset.y/2;
     }
     #endif
 
@@ -2662,12 +2672,12 @@ Vector2 GetTouchPosition(int index)
 // NOTE: returns false in case graphic device could not be created
 static bool InitGraphicsDevice(int width, int height)
 {
-    CORE.Window.screen.width = width;            // User desired width
-    CORE.Window.screen.height = height;          // User desired height
+    //CORE.Window[CORE.currentWindow].screen.width = width;            // User desired width
+    //CORE.Window[CORE.currentWindow].screen.height = height;          // User desired height
 
-    CORE.Window.screenScale = MatrixIdentity();  // No draw scaling required by default
+   // CORE.Window[CORE.currentWindow].screenScale = MatrixIdentity();  // No draw scaling required by default
 
-    // NOTE: Framebuffer (render area - CORE.Window.render.width, CORE.Window.render.height) could include black bars...
+    // NOTE: Framebuffer (render area - CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height) could include black bars...
     // ...in top-down or left-right to match display aspect ratio (no weird scalings)
 
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
@@ -2676,11 +2686,13 @@ static bool InitGraphicsDevice(int width, int height)
 #if defined(__APPLE__)
     glfwInitHint(GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE);
 #endif
-
-    if (!glfwInit())
+    if (CORE.numWindows == 0) //if it's the first context
     {
-        TRACELOG(LOG_WARNING, "GLFW: Failed to initialize GLFW");
-        return false;
+        if (!glfwInit())
+        {
+            TRACELOG(LOG_WARNING, "GLFW: Failed to initialize GLFW");
+            return false;
+        }
     }
 
     // NOTE: Getting video modes is not implemented in emscripten GLFW3 version
@@ -2694,17 +2706,20 @@ static bool InitGraphicsDevice(int width, int height)
     }
     const GLFWvidmode *mode = glfwGetVideoMode(monitor);
 
-    CORE.Window.display.width = mode->width;
-    CORE.Window.display.height = mode->height;
+    CORE.Window[CORE.currentWindow].screenScale = MatrixIdentity();  // No draw scaling required by default
+    CORE.Window[CORE.currentWindow].screen.width = width;            // User desired width
+    CORE.Window[CORE.currentWindow].screen.height = height;          // User desired height
+    CORE.Window[CORE.currentWindow].display.width = mode->width;
+    CORE.Window[CORE.currentWindow].display.height = mode->height;
 
     // Screen size security check
-    if (CORE.Window.screen.width <= 0) CORE.Window.screen.width = CORE.Window.display.width;
-    if (CORE.Window.screen.height <= 0) CORE.Window.screen.height = CORE.Window.display.height;
+    if (CORE.Window[CORE.currentWindow].screen.width <= 0) CORE.Window[CORE.currentWindow].screen.width = CORE.Window[CORE.currentWindow].display.width;
+    if (CORE.Window[CORE.currentWindow].screen.height <= 0) CORE.Window[CORE.currentWindow].screen.height = CORE.Window[CORE.currentWindow].display.height;
 #endif  // PLATFORM_DESKTOP
 
 #if defined(PLATFORM_WEB)
-    CORE.Window.display.width = CORE.Window.screen.width;
-    CORE.Window.display.height = CORE.Window.screen.height;
+    CORE.Window[CORE.currentWindow].display.width = CORE.Window[CORE.currentWindow].screen.width;
+    CORE.Window[CORE.currentWindow].display.height = CORE.Window[CORE.currentWindow].screen.height;
 #endif  // PLATFORM_WEB
 
     glfwDefaultWindowHints();                       // Set default windows hints:
@@ -2724,21 +2739,21 @@ static bool InitGraphicsDevice(int width, int height)
 #endif
 
     // Check some Window creation flags
-    if (CORE.Window.flags & FLAG_WINDOW_HIDDEN) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);           // Visible window
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_WINDOW_HIDDEN) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);           // Visible window
     else glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);     // Window initially hidden
 
-    if (CORE.Window.flags & FLAG_WINDOW_RESIZABLE) glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);       // Resizable window
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_WINDOW_RESIZABLE) glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);       // Resizable window
     else glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);  // Avoid window being resizable
 
-    if (CORE.Window.flags & FLAG_WINDOW_UNDECORATED) glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);    // Border and buttons on Window
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_WINDOW_UNDECORATED) glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);    // Border and buttons on Window
     else glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);   // Decorated window
     // FLAG_WINDOW_TRANSPARENT not supported on HTML5 and not included in any released GLFW version yet
 #if defined(GLFW_TRANSPARENT_FRAMEBUFFER)
-    if (CORE.Window.flags & FLAG_WINDOW_TRANSPARENT) glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);     // Transparent framebuffer
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_WINDOW_TRANSPARENT) glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);     // Transparent framebuffer
     else glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_FALSE);  // Opaque framebuffer
 #endif
 
-    if (CORE.Window.flags & FLAG_MSAA_4X_HINT) glfwWindowHint(GLFW_SAMPLES, 4);   // Tries to enable multisampling x4 (MSAA), default is 0
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_MSAA_4X_HINT) glfwWindowHint(GLFW_SAMPLES, 4);   // Tries to enable multisampling x4 (MSAA), default is 0
 
     // NOTE: When asking for an OpenGL context version, most drivers provide highest supported version
     // with forward compatibility to older OpenGL versions.
@@ -2761,7 +2776,7 @@ static bool InitGraphicsDevice(int width, int height)
 #else
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_FALSE); // Fordward Compatibility Hint: Only 3.3 and above!
 #endif
-        //glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE); // Request OpenGL DEBUG context
+    //glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE); // Request OpenGL DEBUG context
     }
     else if (rlGetVersion() == OPENGL_ES_20)                    // Request OpenGL ES 2.0 context
     {
@@ -2775,28 +2790,28 @@ static bool InitGraphicsDevice(int width, int height)
 #endif
     }
 
-    if (CORE.Window.fullscreen)
+    if (CORE.Window[CORE.currentWindow].fullscreen)
     {
         // remember center for switchinging from fullscreen to window
-        CORE.Window.position.x = CORE.Window.display.width/2 - CORE.Window.screen.width/2;
-        CORE.Window.position.y = CORE.Window.display.height/2 - CORE.Window.screen.height/2;
+        CORE.Window[CORE.currentWindow].position.x = CORE.Window[CORE.currentWindow].display.width / 2 - CORE.Window[CORE.currentWindow].screen.width / 2;
+        CORE.Window[CORE.currentWindow].position.y = CORE.Window[CORE.currentWindow].display.height / 2 - CORE.Window[CORE.currentWindow].screen.height / 2;
 
-        if (CORE.Window.position.x < 0) CORE.Window.position.x = 0;
-        if (CORE.Window.position.y < 0) CORE.Window.position.y = 0;
+        if (CORE.Window[CORE.currentWindow].position.x < 0) CORE.Window[CORE.currentWindow].position.x = 0;
+        if (CORE.Window[CORE.currentWindow].position.y < 0) CORE.Window[CORE.currentWindow].position.y = 0;
 
-        // Obtain recommended CORE.Window.display.width/CORE.Window.display.height from a valid videomode for the monitor
+        // Obtain recommended CORE.Window[CORE.currentWindow].display.width/CORE.Window[CORE.currentWindow].display.height from a valid videomode for the monitor
         int count = 0;
-        const GLFWvidmode *modes = glfwGetVideoModes(glfwGetPrimaryMonitor(), &count);
+        const GLFWvidmode* modes = glfwGetVideoModes(glfwGetPrimaryMonitor(), &count);
 
-        // Get closest video mode to desired CORE.Window.screen.width/CORE.Window.screen.height
+        // Get closest video mode to desired CORE.Window[CORE.currentWindow].screen.width/CORE.Window[CORE.currentWindow].screen.height
         for (int i = 0; i < count; i++)
         {
-            if ((unsigned int)modes[i].width >= CORE.Window.screen.width)
+            if ((unsigned int)modes[i].width >= CORE.Window[CORE.currentWindow].screen.width)
             {
-                if ((unsigned int)modes[i].height >= CORE.Window.screen.height)
+                if ((unsigned int)modes[i].height >= CORE.Window[CORE.currentWindow].screen.height)
                 {
-                    CORE.Window.display.width = modes[i].width;
-                    CORE.Window.display.height = modes[i].height;
+                    CORE.Window[CORE.currentWindow].display.width = modes[i].width;
+                    CORE.Window[CORE.currentWindow].display.height = modes[i].height;
                     break;
                 }
             }
@@ -2804,12 +2819,12 @@ static bool InitGraphicsDevice(int width, int height)
 
 #if defined(PLATFORM_DESKTOP)
         // If we are windowed fullscreen, ensures that window does not minimize when focus is lost
-        if ((CORE.Window.screen.height == CORE.Window.display.height) && (CORE.Window.screen.width == CORE.Window.display.width))
+        if ((CORE.Window[CORE.currentWindow].screen.height == CORE.Window[CORE.currentWindow].display.height) && (CORE.Window[CORE.currentWindow].screen.width == CORE.Window[CORE.currentWindow].display.width))
         {
             glfwWindowHint(GLFW_AUTO_ICONIFY, 0);
         }
 #endif
-        TRACELOG(LOG_WARNING, "SYSTEM: Closest fullscreen videomode: %i x %i", CORE.Window.display.width, CORE.Window.display.height);
+        TRACELOG(LOG_WARNING, "SYSTEM: Closest fullscreen videomode: %i x %i", CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
         // NOTE: ISSUE: Closest videomode could not match monitor aspect-ratio, for example,
         // for a desired screen size of 800x450 (16:9), closest supported videomode is 800x600 (4:3),
@@ -2818,39 +2833,41 @@ static bool InitGraphicsDevice(int width, int height)
 
         // Try to setup the most appropiate fullscreen framebuffer for the requested screenWidth/screenHeight
         // It considers device display resolution mode and setups a framebuffer with black bars if required (render size/offset)
-        // Modified global variables: CORE.Window.screen.width/CORE.Window.screen.height - CORE.Window.render.width/CORE.Window.render.height - CORE.Window.renderOffset.x/CORE.Window.renderOffset.y - CORE.Window.screenScale
+        // Modified global variables: CORE.Window[CORE.currentWindow].screen.width/CORE.Window[CORE.currentWindow].screen.height - CORE.Window[CORE.currentWindow].render.width/CORE.Window[CORE.currentWindow].render.height - CORE.Window[CORE.currentWindow].renderOffset.x/CORE.Window[CORE.currentWindow].renderOffset.y - CORE.Window[CORE.currentWindow].screenScale
         // TODO: It is a quite cumbersome solution to display size vs requested size, it should be reviewed or removed...
         // HighDPI monitors are properly considered in a following similar function: SetupViewport()
-        SetupFramebuffer(CORE.Window.display.width, CORE.Window.display.height);
+        SetupFramebuffer(CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
-        CORE.Window.handle = glfwCreateWindow(CORE.Window.display.width, CORE.Window.display.height, CORE.Window.title, glfwGetPrimaryMonitor(), NULL);
+        CORE.Window[CORE.currentWindow].handle = glfwCreateWindow(CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height, CORE.Window[CORE.currentWindow].title, glfwGetPrimaryMonitor(), CORE.currentWindow == 0 ? NULL : CORE.Window[0].handle);
+        //CORE.Window[CORE.currentWindow].handle = glfwCreateWindow(CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height, CORE.Window[CORE.currentWindow].title, glfwGetPrimaryMonitor(), NULL);
 
         // NOTE: Full-screen change, not working properly...
-        //glfwSetWindowMonitor(CORE.Window.handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window.screen.width, CORE.Window.screen.height, GLFW_DONT_CARE);
+        //glfwSetWindowMonitor(CORE.Window[CORE.currentWindow].handle, glfwGetPrimaryMonitor(), 0, 0, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, GLFW_DONT_CARE);
     }
     else
     {
         // No-fullscreen window creation
-        CORE.Window.handle = glfwCreateWindow(CORE.Window.screen.width, CORE.Window.screen.height, CORE.Window.title, NULL, NULL);
+        CORE.Window[CORE.currentWindow].handle = glfwCreateWindow(CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, CORE.Window[CORE.currentWindow].title, NULL, CORE.currentWindow == 0 ? NULL : CORE.Window[0].handle);
+        //CORE.Window[CORE.currentWindow].handle = glfwCreateWindow(CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, CORE.Window[CORE.currentWindow].title, NULL, NULL);
 
-        if (CORE.Window.handle)
+        if (CORE.Window[CORE.currentWindow].handle)
         {
 #if defined(PLATFORM_DESKTOP)
             // Center window on screen
-            int windowPosX = CORE.Window.display.width/2 - CORE.Window.screen.width/2;
-            int windowPosY = CORE.Window.display.height/2 - CORE.Window.screen.height/2;
+            int windowPosX = CORE.Window[CORE.currentWindow].display.width / 2 - CORE.Window[CORE.currentWindow].screen.width / 2;
+            int windowPosY = CORE.Window[CORE.currentWindow].display.height / 2 - CORE.Window[CORE.currentWindow].screen.height / 2;
 
             if (windowPosX < 0) windowPosX = 0;
             if (windowPosY < 0) windowPosY = 0;
 
-            glfwSetWindowPos(CORE.Window.handle, windowPosX, windowPosY);
+            glfwSetWindowPos(CORE.Window[CORE.currentWindow].handle, windowPosX, windowPosY);
 #endif
-            CORE.Window.render.width = CORE.Window.screen.width;
-            CORE.Window.render.height = CORE.Window.screen.height;
+            CORE.Window[CORE.currentWindow].render.width = CORE.Window[CORE.currentWindow].screen.width;
+            CORE.Window[CORE.currentWindow].render.height = CORE.Window[CORE.currentWindow].screen.height;
         }
     }
 
-    if (!CORE.Window.handle)
+    if (!CORE.Window[CORE.currentWindow].handle)
     {
         glfwTerminate();
         TRACELOG(LOG_WARNING, "GLFW: Failed to initialize Window");
@@ -2860,25 +2877,25 @@ static bool InitGraphicsDevice(int width, int height)
     {
         TRACELOG(LOG_INFO, "DISPLAY: Device initialized successfully");
 #if defined(PLATFORM_DESKTOP)
-        TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window.display.width, CORE.Window.display.height);
+        TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 #endif
-        TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window.render.width, CORE.Window.render.height);
-        TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window.screen.width, CORE.Window.screen.height);
-        TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window.renderOffset.x, CORE.Window.renderOffset.y);
+        TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height);
+        TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height);
+        TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window[CORE.currentWindow].renderOffset.x, CORE.Window[CORE.currentWindow].renderOffset.y);
     }
 
-    glfwSetWindowSizeCallback(CORE.Window.handle, WindowSizeCallback);      // NOTE: Resizing not allowed by default!
-    glfwSetCursorEnterCallback(CORE.Window.handle, CursorEnterCallback);
-    glfwSetKeyCallback(CORE.Window.handle, KeyCallback);
-    glfwSetMouseButtonCallback(CORE.Window.handle, MouseButtonCallback);
-    glfwSetCursorPosCallback(CORE.Window.handle, MouseCursorPosCallback);   // Track mouse position changes
-    glfwSetCharCallback(CORE.Window.handle, CharCallback);
-    glfwSetScrollCallback(CORE.Window.handle, ScrollCallback);
-    glfwSetWindowIconifyCallback(CORE.Window.handle, WindowIconifyCallback);
-    glfwSetWindowFocusCallback(CORE.Window.handle, WindowFocusCallback);
-    glfwSetDropCallback(CORE.Window.handle, WindowDropCallback);
-
-    glfwMakeContextCurrent(CORE.Window.handle);
+    glfwSetWindowSizeCallback(CORE.Window[CORE.currentWindow].handle, WindowSizeCallback);      // NOTE: Resizing not allowed by default!
+    glfwSetCursorEnterCallback(CORE.Window[CORE.currentWindow].handle, CursorEnterCallback);
+    glfwSetKeyCallback(CORE.Window[CORE.currentWindow].handle, KeyCallback);
+    glfwSetMouseButtonCallback(CORE.Window[CORE.currentWindow].handle, MouseButtonCallback);
+    glfwSetCursorPosCallback(CORE.Window[CORE.currentWindow].handle, MouseCursorPosCallback);   // Track mouse position changes
+    glfwSetCharCallback(CORE.Window[CORE.currentWindow].handle, CharCallback);
+    glfwSetScrollCallback(CORE.Window[CORE.currentWindow].handle, ScrollCallback);
+    glfwSetWindowIconifyCallback(CORE.Window[CORE.currentWindow].handle, WindowIconifyCallback);
+    glfwSetWindowFocusCallback(CORE.Window[CORE.currentWindow].handle, WindowFocusCallback);
+    glfwSetDropCallback(CORE.Window[CORE.currentWindow].handle, WindowDropCallback);
+    
+    glfwMakeContextCurrent(CORE.Window[CORE.currentWindow].handle);
 
 #if !defined(PLATFORM_WEB)
     glfwSwapInterval(0);        // No V-Sync by default
@@ -2892,7 +2909,7 @@ static bool InitGraphicsDevice(int width, int height)
 
     // Try to enable GPU V-Sync, so frames are limited to screen refresh rate (60Hz -> 60 FPS)
     // NOTE: V-Sync can be enabled by graphic driver configuration
-    if (CORE.Window.flags & FLAG_VSYNC_HINT)
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_VSYNC_HINT)
     {
         // WARNING: It seems to hits a critical render path in Intel HD Graphics
         glfwSwapInterval(1);
@@ -2901,7 +2918,7 @@ static bool InitGraphicsDevice(int width, int height)
 #endif // PLATFORM_DESKTOP || PLATFORM_WEB
 
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_RPI) || defined(PLATFORM_UWP)
-    CORE.Window.fullscreen = true;
+    CORE.Window[CORE.currentWindow].fullscreen = true;
 
 #if defined(PLATFORM_RPI)
     bcm_host_init();
@@ -2916,7 +2933,7 @@ static bool InitGraphicsDevice(int width, int height)
 
     EGLint samples = 0;
     EGLint sampleBuffer = 0;
-    if (CORE.Window.flags & FLAG_MSAA_4X_HINT)
+    if (CORE.Window[CORE.currentWindow].flags & FLAG_MSAA_4X_HINT)
     {
         samples = 4;
         sampleBuffer = 1;
@@ -3013,34 +3030,34 @@ static bool InitGraphicsDevice(int width, int height)
     //
 
     // This tries to initialize EGL to D3D11 Feature Level 10_0+. See above comment for details.
-    CORE.Window.device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, defaultDisplayAttributes);
-    if (CORE.Window.device == EGL_NO_DISPLAY)
+    CORE.Window[CORE.currentWindow].device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, defaultDisplayAttributes);
+    if (CORE.Window[CORE.currentWindow].device == EGL_NO_DISPLAY)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
         return false;
     }
 
-    if (eglInitialize(CORE.Window.device, NULL, NULL) == EGL_FALSE)
+    if (eglInitialize(CORE.Window[CORE.currentWindow].device, NULL, NULL) == EGL_FALSE)
     {
         // This tries to initialize EGL to D3D11 Feature Level 9_3, if 10_0+ is unavailable (e.g. on some mobile devices).
-        CORE.Window.device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, fl9_3DisplayAttributes);
-        if (CORE.Window.device == EGL_NO_DISPLAY)
+        CORE.Window[CORE.currentWindow].device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, fl9_3DisplayAttributes);
+        if (CORE.Window[CORE.currentWindow].device == EGL_NO_DISPLAY)
         {
             TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
             return false;
         }
 
-        if (eglInitialize(CORE.Window.device, NULL, NULL) == EGL_FALSE)
+        if (eglInitialize(CORE.Window[CORE.currentWindow].device, NULL, NULL) == EGL_FALSE)
         {
             // This initializes EGL to D3D11 Feature Level 11_0 on WARP, if 9_3+ is unavailable on the default GPU.
-            CORE.Window.device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, warpDisplayAttributes);
-            if (CORE.Window.device == EGL_NO_DISPLAY)
+            CORE.Window[CORE.currentWindow].device = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, warpDisplayAttributes);
+            if (CORE.Window[CORE.currentWindow].device == EGL_NO_DISPLAY)
             {
                 TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
                 return false;
             }
 
-            if (eglInitialize(CORE.Window.device, NULL, NULL) == EGL_FALSE)
+            if (eglInitialize(CORE.Window[CORE.currentWindow].device, NULL, NULL) == EGL_FALSE)
             {
                 // If all of the calls to eglInitialize returned EGL_FALSE then an error has occurred.
                 TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
@@ -3050,7 +3067,7 @@ static bool InitGraphicsDevice(int width, int height)
     }
 
     EGLint numConfigs = 0;
-    if ((eglChooseConfig(CORE.Window.device, framebufferAttribs, &CORE.Window.config, 1, &numConfigs) == EGL_FALSE) || (numConfigs == 0))
+    if ((eglChooseConfig(CORE.Window[CORE.currentWindow].device, framebufferAttribs, &CORE.Window[CORE.currentWindow].config, 1, &numConfigs) == EGL_FALSE) || (numConfigs == 0))
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to choose first EGL configuration");
         return false;
@@ -3086,31 +3103,27 @@ static bool InitGraphicsDevice(int width, int height)
 
     //https://stackoverflow.com/questions/46550182/how-to-create-eglsurface-using-c-winrt-and-angle
 
-    //CORE.Window.surface = eglCreateWindowSurface(CORE.Window.device, CORE.Window.config, reinterpret_cast<IInspectable*>(surfaceCreationProperties), surfaceAttributes);
-    CORE.Window.surface = eglCreateWindowSurface(CORE.Window.device, CORE.Window.config, (EGLNativeWindowType) UWPGetCoreWindowPtr(), surfaceAttributes);
-    if (CORE.Window.surface == EGL_NO_SURFACE)
+    //CORE.Window[CORE.currentWindow].surface = eglCreateWindowSurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, reinterpret_cast<IInspectable*>(surfaceCreationProperties), surfaceAttributes);
+    CORE.Window[CORE.currentWindow].surface = eglCreateWindowSurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, (EGLNativeWindowType) UWPGetCoreWindowPtr(), surfaceAttributes);
+    if (CORE.Window[CORE.currentWindow].surface == EGL_NO_SURFACE)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to create EGL fullscreen surface");
         return false;
     }
 
-    CORE.Window.context = eglCreateContext(CORE.Window.device, CORE.Window.config, EGL_NO_CONTEXT, contextAttribs);
-    if (CORE.Window.context == EGL_NO_CONTEXT)
+    CORE.Window[CORE.currentWindow].context = eglCreateContext(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, EGL_NO_CONTEXT, contextAttribs);
+    if (CORE.Window[CORE.currentWindow].context == EGL_NO_CONTEXT)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to create EGL context");
         return false;
     }
 
     // Get EGL device window size
-    eglQuerySurface(CORE.Window.device, CORE.Window.surface, EGL_WIDTH, &CORE.Window.screen.width);
-    eglQuerySurface(CORE.Window.device, CORE.Window.surface, EGL_HEIGHT, &CORE.Window.screen.height);
+    eglQuerySurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface, EGL_WIDTH, &CORE.Window[CORE.currentWindow].screen.width);
+    eglQuerySurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface, EGL_HEIGHT, &CORE.Window[CORE.currentWindow].screen.height);
 
     // Get display size
-    UWPGetDisplaySizeFunc()(&CORE.Window.display.width, &CORE.Window.display.height);
-
-    // Use the width and height of the surface for render
-    CORE.Window.render.width = CORE.Window.screen.width;
-    CORE.Window.render.height = CORE.Window.screen.height;
+    UWPGetDisplaySizeFunc()(&CORE.Window[CORE.currentWindow].display.width, &CORE.Window[CORE.currentWindow].display.height);
 
 #endif  // PLATFORM_UWP
 
@@ -3118,15 +3131,15 @@ static bool InitGraphicsDevice(int width, int height)
     EGLint numConfigs = 0;
 
     // Get an EGL device connection
-    CORE.Window.device = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (CORE.Window.device == EGL_NO_DISPLAY)
+    CORE.Window[CORE.currentWindow].device = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (CORE.Window[CORE.currentWindow].device == EGL_NO_DISPLAY)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
         return false;
     }
 
     // Initialize the EGL device connection
-    if (eglInitialize(CORE.Window.device, NULL, NULL) == EGL_FALSE)
+    if (eglInitialize(CORE.Window[CORE.currentWindow].device, NULL, NULL) == EGL_FALSE)
     {
         // If all of the calls to eglInitialize returned EGL_FALSE then an error has occurred.
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
@@ -3134,14 +3147,14 @@ static bool InitGraphicsDevice(int width, int height)
     }
 
     // Get an appropriate EGL framebuffer configuration
-    eglChooseConfig(CORE.Window.device, framebufferAttribs, &CORE.Window.config, 1, &numConfigs);
+    eglChooseConfig(CORE.Window[CORE.currentWindow].device, framebufferAttribs, &CORE.Window[CORE.currentWindow].config, 1, &numConfigs);
 
     // Set rendering API
     eglBindAPI(EGL_OPENGL_ES_API);
 
     // Create an EGL rendering context
-    CORE.Window.context = eglCreateContext(CORE.Window.device, CORE.Window.config, EGL_NO_CONTEXT, contextAttribs);
-    if (CORE.Window.context == EGL_NO_CONTEXT)
+    CORE.Window[CORE.currentWindow].context = eglCreateContext(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, EGL_NO_CONTEXT, contextAttribs);
+    if (CORE.Window[CORE.currentWindow].context == EGL_NO_CONTEXT)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to create EGL context");
         return false;
@@ -3155,44 +3168,38 @@ static bool InitGraphicsDevice(int width, int height)
 
     // EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is guaranteed to be accepted by ANativeWindow_setBuffersGeometry()
     // As soon as we picked a EGLConfig, we can safely reconfigure the ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID
-    eglGetConfigAttrib(CORE.Window.device, CORE.Window.config, EGL_NATIVE_VISUAL_ID, &displayFormat);
+    eglGetConfigAttrib(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, EGL_NATIVE_VISUAL_ID, &displayFormat);
 
     // At this point we need to manage render size vs screen size
-    // NOTE: This function use and modify global module variables: 
-    //  -> CORE.Window.screen.width/CORE.Window.screen.height
-    //  -> CORE.Window.render.width/CORE.Window.render.height
-    //  -> CORE.Window.screenScale
-    SetupFramebuffer(CORE.Window.display.width, CORE.Window.display.height);
+    // NOTE: This function use and modify global module variables: CORE.Window[CORE.currentWindow].screen.width/CORE.Window[CORE.currentWindow].screen.height and CORE.Window[CORE.currentWindow].render.width/CORE.Window[CORE.currentWindow].render.height and CORE.Window[CORE.currentWindow].screenScale
+    SetupFramebuffer(CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
-    ANativeWindow_setBuffersGeometry(CORE.Android.app->window, CORE.Window.render.width, CORE.Window.render.height, displayFormat);
+    ANativeWindow_setBuffersGeometry(CORE.Android.app->window, CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height, displayFormat);
     //ANativeWindow_setBuffersGeometry(CORE.Android.app->window, 0, 0, displayFormat);       // Force use of native display size
 
-    CORE.Window.surface = eglCreateWindowSurface(CORE.Window.device, CORE.Window.config, CORE.Android.app->window, NULL);
+    CORE.Window[CORE.currentWindow].surface = eglCreateWindowSurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, CORE.Android.app->window, NULL);
 #endif  // PLATFORM_ANDROID
 
 #if defined(PLATFORM_RPI)
-    graphics_get_display_size(0, &CORE.Window.display.width, &CORE.Window.display.height);
+    graphics_get_display_size(0, &CORE.Window[CORE.currentWindow].display.width, &CORE.Window[CORE.currentWindow].display.height);
     
     // Screen size security check
-    if (CORE.Window.screen.width <= 0) CORE.Window.screen.width = CORE.Window.display.width;
-    if (CORE.Window.screen.height <= 0) CORE.Window.screen.height = CORE.Window.display.height;
+    if (CORE.Window[CORE.currentWindow].screen.width <= 0) CORE.Window[CORE.currentWindow].screen.width = CORE.Window[CORE.currentWindow].display.width;
+    if (CORE.Window[CORE.currentWindow].screen.height <= 0) CORE.Window[CORE.currentWindow].screen.height = CORE.Window[CORE.currentWindow].display.height;
 
     // At this point we need to manage render size vs screen size
-    // NOTE: This function use and modify global module variables: 
-    //  -> CORE.Window.screen.width/CORE.Window.screen.height
-    //  -> CORE.Window.render.width/CORE.Window.render.height
-    //  -> CORE.Window.screenScale    
-    SetupFramebuffer(CORE.Window.display.width, CORE.Window.display.height);
+    // NOTE: This function use and modify global module variables: CORE.Window[CORE.currentWindow].screen.width/CORE.Window[CORE.currentWindow].screen.height and CORE.Window[CORE.currentWindow].render.width/CORE.Window[CORE.currentWindow].render.height and CORE.Window[CORE.currentWindow].screenScale
+    SetupFramebuffer(CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
     dstRect.x = 0;
     dstRect.y = 0;
-    dstRect.width = CORE.Window.display.width;
-    dstRect.height = CORE.Window.display.height;
+    dstRect.width = CORE.Window[CORE.currentWindow].display.width;
+    dstRect.height = CORE.Window[CORE.currentWindow].display.height;
 
     srcRect.x = 0;
     srcRect.y = 0;
-    srcRect.width = CORE.Window.render.width << 16;
-    srcRect.height = CORE.Window.render.height << 16;
+    srcRect.width = CORE.Window[CORE.currentWindow].render.width << 16;
+    srcRect.height = CORE.Window[CORE.currentWindow].render.height << 16;
 
     // NOTE: RPI dispmanx windowing system takes care of srcRec scaling to dstRec by hardware (no cost)
     // Take care that renderWidth/renderHeight fit on displayWidth/displayHeight aspect ratio
@@ -3209,19 +3216,19 @@ static bool InitGraphicsDevice(int width, int height)
     dispmanElement = vc_dispmanx_element_add(dispmanUpdate, dispmanDisplay, 0/*layer*/, &dstRect, 0/*src*/,
                                             &srcRect, DISPMANX_PROTECTION_NONE, &alpha, 0/*clamp*/, DISPMANX_NO_ROTATE);
 
-    CORE.Window.handle.element = dispmanElement;
-    CORE.Window.handle.width = CORE.Window.render.width;
-    CORE.Window.handle.height = CORE.Window.render.height;
+    CORE.Window[CORE.currentWindow].handle.element = dispmanElement;
+    CORE.Window[CORE.currentWindow].handle.width = CORE.Window[CORE.currentWindow].render.width;
+    CORE.Window[CORE.currentWindow].handle.height = CORE.Window[CORE.currentWindow].render.height;
     vc_dispmanx_update_submit_sync(dispmanUpdate);
 
-    CORE.Window.surface = eglCreateWindowSurface(CORE.Window.device, CORE.Window.config, &CORE.Window.handle, NULL);
+    CORE.Window[CORE.currentWindow].surface = eglCreateWindowSurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, &CORE.Window[CORE.currentWindow].handle, NULL);
     //---------------------------------------------------------------------------------
 #endif  // PLATFORM_RPI
 
     // There must be at least one frame displayed before the buffers are swapped
-    //eglSwapInterval(CORE.Window.device, 1);
+    //eglSwapInterval(CORE.Window[CORE.currentWindow].device, 1);
 
-    if (eglMakeCurrent(CORE.Window.device, CORE.Window.surface, CORE.Window.surface, CORE.Window.context) == EGL_FALSE)
+    if (eglMakeCurrent(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface, CORE.Window[CORE.currentWindow].surface, CORE.Window[CORE.currentWindow].context) == EGL_FALSE)
     {
         TRACELOG(LOG_WARNING, "DISPLAY: Failed to attach EGL rendering context to EGL surface");
         return false;
@@ -3229,40 +3236,42 @@ static bool InitGraphicsDevice(int width, int height)
     else
     {
         TRACELOG(LOG_INFO, "DISPLAY: Device initialized successfully");
-        TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window.display.width, CORE.Window.display.height);
-        TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window.render.width, CORE.Window.render.height);
-        TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window.screen.width, CORE.Window.screen.height);
-        TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window.renderOffset.x, CORE.Window.renderOffset.y);
+        TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
+        TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height);
+        TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height);
+        TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window[CORE.currentWindow].renderOffset.x, CORE.Window[CORE.currentWindow].renderOffset.y);
     }
-#endif // PLATFORM_ANDROID || PLATFORM_RPI || defined(PLATFORM_UWP)
-
+#endif // PLATFORM_ANDROID || PLATFORM_RPI
+    rlSetContext(CORE.currentWindow);
     // Initialize OpenGL context (states and resources)
-    // NOTE: CORE.Window.screen.width and CORE.Window.screen.height not used, just stored as globals in rlgl
-    rlglInit(CORE.Window.screen.width, CORE.Window.screen.height);
+    // NOTE: CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height not used, just stored as globals in rlgl
+    rlglInit(CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height);
 
-    int fbWidth = CORE.Window.render.width;
-    int fbHeight = CORE.Window.render.height;
+    int fbWidth = CORE.Window[CORE.currentWindow].render.width;
+    int fbHeight = CORE.Window[CORE.currentWindow].render.height;
 
 #if defined(PLATFORM_DESKTOP) && defined(SUPPORT_HIGH_DPI)
-    glfwGetFramebufferSize(CORE.Window.handle, &fbWidth, &fbHeight);
+    glfwGetFramebufferSize(CORE.Window[CORE.currentWindow].handle, &fbWidth, &fbHeight);
 
     // Screen scaling matrix is required in case desired screen area is different than display area
-    CORE.Window.screenScale = MatrixScale((float)fbWidth/CORE.Window.screen.width, (float)fbHeight/CORE.Window.screen.height, 1.0f);
+    CORE.Window[CORE.currentWindow].screenScale = MatrixScale((float)fbWidth/CORE.Window[CORE.currentWindow].screen.width, (float)fbHeight/CORE.Window[CORE.currentWindow].screen.height, 1.0f);
 #if !defined(__APPLE__)
-    SetMouseScale((float)CORE.Window.screen.width/fbWidth, (float)CORE.Window.screen.height/fbHeight);
+    SetMouseScale((float)CORE.Window[CORE.currentWindow].screen.width/fbWidth, (float)CORE.Window[CORE.currentWindow].screen.height/fbHeight);
 #endif
 #endif  // PLATFORM_DESKTOP && SUPPORT_HIGH_DPI
 
     // Setup default viewport
     SetupViewport(fbWidth, fbHeight);
 
-    CORE.Window.currentFbo.width = CORE.Window.screen.width;
-    CORE.Window.currentFbo.height = CORE.Window.screen.height;
-
+    //for (CORE.currentWindow = 0; CORE.currentWindow < 2; CORE.currentWindow++)
+    {
+        CORE.Window[CORE.currentWindow].currentFbo.width = CORE.Window[CORE.currentWindow].screen.width;
+        CORE.Window[CORE.currentWindow].currentFbo.height = CORE.Window[CORE.currentWindow].screen.height;
+    }
     ClearBackground(RAYWHITE);      // Default background color for raylib games :P
 
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_UWP)
-    CORE.Window.ready = true;
+    CORE.Window[CORE.currentWindow].ready = true;
 #endif
     return true;
 }
@@ -3270,94 +3279,94 @@ static bool InitGraphicsDevice(int width, int height)
 // Set viewport for a provided width and height
 static void SetupViewport(int width, int height)
 {
-    CORE.Window.render.width = width;
-    CORE.Window.render.height = height;
+    CORE.Window[CORE.currentWindow].render.width = width;
+    CORE.Window[CORE.currentWindow].render.height = height;
 
     // Set viewport width and height
     // NOTE: We consider render size and offset in case black bars are required and
     // render area does not match full display area (this situation is only applicable on fullscreen mode)
-    rlViewport(CORE.Window.renderOffset.x/2, CORE.Window.renderOffset.y/2, CORE.Window.render.width - CORE.Window.renderOffset.x, CORE.Window.render.height - CORE.Window.renderOffset.y);
+    rlViewport(CORE.Window[CORE.currentWindow].renderOffset.x/2, CORE.Window[CORE.currentWindow].renderOffset.y/2, CORE.Window[CORE.currentWindow].render.width - CORE.Window[CORE.currentWindow].renderOffset.x, CORE.Window[CORE.currentWindow].render.height - CORE.Window[CORE.currentWindow].renderOffset.y);
 
     rlMatrixMode(RL_PROJECTION);        // Switch to projection matrix
     rlLoadIdentity();                   // Reset current matrix (projection)
 
     // Set orthographic projection to current framebuffer size
     // NOTE: Configured top-left corner as (0, 0)
-    rlOrtho(0, CORE.Window.render.width, CORE.Window.render.height, 0, 0.0f, 1.0f);
+    rlOrtho(0, CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height, 0, 0.0f, 1.0f);
 
     rlMatrixMode(RL_MODELVIEW);         // Switch back to modelview matrix
     rlLoadIdentity();                   // Reset current matrix (modelview)
 }
 
 // Compute framebuffer size relative to screen size and display size
-// NOTE: Global variables CORE.Window.render.width/CORE.Window.render.height and CORE.Window.renderOffset.x/CORE.Window.renderOffset.y can be modified
+// NOTE: Global variables CORE.Window[CORE.currentWindow].render.width/CORE.Window[CORE.currentWindow].render.height and CORE.Window[CORE.currentWindow].renderOffset.x/CORE.Window[CORE.currentWindow].renderOffset.y can be modified
 static void SetupFramebuffer(int width, int height)
 {
-    // Calculate CORE.Window.render.width and CORE.Window.render.height, we have the display size (input params) and the desired screen size (global var)
-    if ((CORE.Window.screen.width > CORE.Window.display.width) || (CORE.Window.screen.height > CORE.Window.display.height))
+    // Calculate CORE.Window[CORE.currentWindow].render.width and CORE.Window[CORE.currentWindow].render.height, we have the display size (input params) and the desired screen size (global var)
+    if ((CORE.Window[CORE.currentWindow].screen.width > CORE.Window[CORE.currentWindow].display.width) || (CORE.Window[CORE.currentWindow].screen.height > CORE.Window[CORE.currentWindow].display.height))
     {
-        TRACELOG(LOG_WARNING, "DISPLAY: Downscaling required: Screen size (%ix%i) is bigger than display size (%ix%i)", CORE.Window.screen.width, CORE.Window.screen.height, CORE.Window.display.width, CORE.Window.display.height);
+        TRACELOG(LOG_WARNING, "DISPLAY: Downscaling required: Screen size (%ix%i) is bigger than display size (%ix%i)", CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
         // Downscaling to fit display with border-bars
-        float widthRatio = (float)CORE.Window.display.width/(float)CORE.Window.screen.width;
-        float heightRatio = (float)CORE.Window.display.height/(float)CORE.Window.screen.height;
+        float widthRatio = (float)CORE.Window[CORE.currentWindow].display.width/(float)CORE.Window[CORE.currentWindow].screen.width;
+        float heightRatio = (float)CORE.Window[CORE.currentWindow].display.height/(float)CORE.Window[CORE.currentWindow].screen.height;
 
         if (widthRatio <= heightRatio)
         {
-            CORE.Window.render.width = CORE.Window.display.width;
-            CORE.Window.render.height = (int)round((float)CORE.Window.screen.height*widthRatio);
-            CORE.Window.renderOffset.x = 0;
-            CORE.Window.renderOffset.y = (CORE.Window.display.height - CORE.Window.render.height);
+            CORE.Window[CORE.currentWindow].render.width = CORE.Window[CORE.currentWindow].display.width;
+            CORE.Window[CORE.currentWindow].render.height = (int)round((float)CORE.Window[CORE.currentWindow].screen.height*widthRatio);
+            CORE.Window[CORE.currentWindow].renderOffset.x = 0;
+            CORE.Window[CORE.currentWindow].renderOffset.y = (CORE.Window[CORE.currentWindow].display.height - CORE.Window[CORE.currentWindow].render.height);
         }
         else
         {
-            CORE.Window.render.width = (int)round((float)CORE.Window.screen.width*heightRatio);
-            CORE.Window.render.height = CORE.Window.display.height;
-            CORE.Window.renderOffset.x = (CORE.Window.display.width - CORE.Window.render.width);
-            CORE.Window.renderOffset.y = 0;
+            CORE.Window[CORE.currentWindow].render.width = (int)round((float)CORE.Window[CORE.currentWindow].screen.width*heightRatio);
+            CORE.Window[CORE.currentWindow].render.height = CORE.Window[CORE.currentWindow].display.height;
+            CORE.Window[CORE.currentWindow].renderOffset.x = (CORE.Window[CORE.currentWindow].display.width - CORE.Window[CORE.currentWindow].render.width);
+            CORE.Window[CORE.currentWindow].renderOffset.y = 0;
         }
 
         // Screen scaling required
-        float scaleRatio = (float)CORE.Window.render.width/(float)CORE.Window.screen.width;
-        CORE.Window.screenScale = MatrixScale(scaleRatio, scaleRatio, 1.0f);
+        float scaleRatio = (float)CORE.Window[CORE.currentWindow].render.width/(float)CORE.Window[CORE.currentWindow].screen.width;
+        CORE.Window[CORE.currentWindow].screenScale = MatrixScale(scaleRatio, scaleRatio, 1.0f);
 
         // NOTE: We render to full display resolution!
         // We just need to calculate above parameters for downscale matrix and offsets
-        CORE.Window.render.width = CORE.Window.display.width;
-        CORE.Window.render.height = CORE.Window.display.height;
+        CORE.Window[CORE.currentWindow].render.width = CORE.Window[CORE.currentWindow].display.width;
+        CORE.Window[CORE.currentWindow].render.height = CORE.Window[CORE.currentWindow].display.height;
 
-        TRACELOG(LOG_WARNING, "DISPLAY: Downscale matrix generated, content will be rendered at (%ix%i)", CORE.Window.render.width, CORE.Window.render.height);
+        TRACELOG(LOG_WARNING, "DISPLAY: Downscale matrix generated, content will be rendered at (%ix%i)", CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height);
     }
-    else if ((CORE.Window.screen.width < CORE.Window.display.width) || (CORE.Window.screen.height < CORE.Window.display.height))
+    else if ((CORE.Window[CORE.currentWindow].screen.width < CORE.Window[CORE.currentWindow].display.width) || (CORE.Window[CORE.currentWindow].screen.height < CORE.Window[CORE.currentWindow].display.height))
     {
         // Required screen size is smaller than display size
-        TRACELOG(LOG_INFO, "DISPLAY: Upscaling required: Screen size (%ix%i) smaller than display size (%ix%i)", CORE.Window.screen.width, CORE.Window.screen.height, CORE.Window.display.width, CORE.Window.display.height);
+        TRACELOG(LOG_INFO, "DISPLAY: Upscaling required: Screen size (%ix%i) smaller than display size (%ix%i)", CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, CORE.Window[CORE.currentWindow].display.width, CORE.Window[CORE.currentWindow].display.height);
 
         // Upscaling to fit display with border-bars
-        float displayRatio = (float)CORE.Window.display.width/(float)CORE.Window.display.height;
-        float screenRatio = (float)CORE.Window.screen.width/(float)CORE.Window.screen.height;
+        float displayRatio = (float)CORE.Window[CORE.currentWindow].display.width/(float)CORE.Window[CORE.currentWindow].display.height;
+        float screenRatio = (float)CORE.Window[CORE.currentWindow].screen.width/(float)CORE.Window[CORE.currentWindow].screen.height;
 
         if (displayRatio <= screenRatio)
         {
-            CORE.Window.render.width = CORE.Window.screen.width;
-            CORE.Window.render.height = (int)round((float)CORE.Window.screen.width/displayRatio);
-            CORE.Window.renderOffset.x = 0;
-            CORE.Window.renderOffset.y = (CORE.Window.render.height - CORE.Window.screen.height);
+            CORE.Window[CORE.currentWindow].render.width = CORE.Window[CORE.currentWindow].screen.width;
+            CORE.Window[CORE.currentWindow].render.height = (int)round((float)CORE.Window[CORE.currentWindow].screen.width/displayRatio);
+            CORE.Window[CORE.currentWindow].renderOffset.x = 0;
+            CORE.Window[CORE.currentWindow].renderOffset.y = (CORE.Window[CORE.currentWindow].render.height - CORE.Window[CORE.currentWindow].screen.height);
         }
         else
         {
-            CORE.Window.render.width = (int)round((float)CORE.Window.screen.height*displayRatio);
-            CORE.Window.render.height = CORE.Window.screen.height;
-            CORE.Window.renderOffset.x = (CORE.Window.render.width - CORE.Window.screen.width);
-            CORE.Window.renderOffset.y = 0;
+            CORE.Window[CORE.currentWindow].render.width = (int)round((float)CORE.Window[CORE.currentWindow].screen.height*displayRatio);
+            CORE.Window[CORE.currentWindow].render.height = CORE.Window[CORE.currentWindow].screen.height;
+            CORE.Window[CORE.currentWindow].renderOffset.x = (CORE.Window[CORE.currentWindow].render.width - CORE.Window[CORE.currentWindow].screen.width);
+            CORE.Window[CORE.currentWindow].renderOffset.y = 0;
         }
     }
     else
     {
-        CORE.Window.render.width = CORE.Window.screen.width;
-        CORE.Window.render.height = CORE.Window.screen.height;
-        CORE.Window.renderOffset.x = 0;
-        CORE.Window.renderOffset.y = 0;
+        CORE.Window[CORE.currentWindow].render.width = CORE.Window[CORE.currentWindow].screen.width;
+        CORE.Window[CORE.currentWindow].render.height = CORE.Window[CORE.currentWindow].screen.height;
+        CORE.Window[CORE.currentWindow].renderOffset.x = 0;
+        CORE.Window[CORE.currentWindow].renderOffset.y = 0;
     }
 }
 
@@ -3618,7 +3627,7 @@ static void PollInputEvents(void)
         }
     }
 
-    CORE.Window.resized = false;
+    CORE.Window[CORE.currentWindow].resized = false;
 
 #if defined(SUPPORT_EVENTS_WAITING)
     glfwWaitEvents();
@@ -3689,7 +3698,7 @@ static void PollInputEvents(void)
         // NOTE: Never close window, native activity is controlled by the system!
         if (CORE.Android.app->destroyRequested != 0)
         {
-            //CORE.Window.shouldClose = true;
+            //CORE.Window[CORE.currentWindow].shouldClose = true;
             //ANativeActivity_finish(CORE.Android.app->activity);
         }
     }
@@ -3709,11 +3718,11 @@ static void PollInputEvents(void)
 static void SwapBuffers(void)
 {
 #if defined(PLATFORM_DESKTOP) || defined(PLATFORM_WEB)
-    glfwSwapBuffers(CORE.Window.handle);
+    glfwSwapBuffers(CORE.Window[CORE.currentWindow].handle);
 #endif
 
 #if defined(PLATFORM_ANDROID) || defined(PLATFORM_RPI) || defined(PLATFORM_UWP)
-    eglSwapBuffers(CORE.Window.device, CORE.Window.surface);
+    eglSwapBuffers(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface);
 #endif
 }
 
@@ -3735,7 +3744,7 @@ static void KeyCallback(GLFWwindow *window, int key, int scancode, int action, i
 {
     if (key == CORE.Input.Keyboard.exitKey && action == GLFW_PRESS)
     {
-        glfwSetWindowShouldClose(CORE.Window.handle, GLFW_TRUE);
+        glfwSetWindowShouldClose(CORE.Window[CORE.currentWindow].handle, GLFW_TRUE);
 
         // NOTE: Before closing window, while loop must be left!
     }
@@ -3772,7 +3781,7 @@ static void KeyCallback(GLFWwindow *window, int key, int scancode, int action, i
 
                 // NOTE: delay represents the time between frames in the gif, if we capture a gif frame every
                 // 10 game frames and each frame trakes 16.6ms (60fps), delay between gif frames should be ~16.6*10.
-                GifBegin(path, CORE.Window.screen.width, CORE.Window.screen.height, (int)(GetFrameTime()*10.0f), 8, false);
+                GifBegin(path, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, (int)(GetFrameTime()*10.0f), 8, false);
                 screenshotCounter++;
 
                 TRACELOG(LOG_INFO, "SYSTEM: Start animated GIF recording: %s", TextFormat("screenrec%03i.gif", screenshotCounter));
@@ -3822,7 +3831,7 @@ static void MouseButtonCallback(GLFWwindow *window, int button, int action, int 
     // Register touch points position, only one point registered
     gestureEvent.position[0] = GetMousePosition();
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 
@@ -3853,7 +3862,7 @@ static void MouseCursorPosCallback(GLFWwindow *window, double x, double y)
     // Register touch points position, only one point registered
     gestureEvent.position[0] = CORE.Input.Touch.position[0];
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 
@@ -3893,28 +3902,28 @@ static void WindowSizeCallback(GLFWwindow *window, int width, int height)
     SetupViewport(width, height);    // Reset viewport and projection matrix for new size
 
     // Set current screen size
-    CORE.Window.screen.width = width;
-    CORE.Window.screen.height = height;
-    CORE.Window.currentFbo.width = width;
-    CORE.Window.currentFbo.height = height;
+    CORE.Window[CORE.currentWindow].screen.width = width;
+    CORE.Window[CORE.currentWindow].screen.height = height;
+    CORE.Window[CORE.currentWindow].currentFbo.width = width;
+    CORE.Window[CORE.currentWindow].currentFbo.height = height;
 
     // NOTE: Postprocessing texture is not scaled to new size
 
-    CORE.Window.resized = true;
+    CORE.Window[CORE.currentWindow].resized = true;
 }
 
 // GLFW3 WindowIconify Callback, runs when window is minimized/restored
 static void WindowIconifyCallback(GLFWwindow *window, int iconified)
 {
-    if (iconified) CORE.Window.minimized = true;  // The window was iconified
-    else CORE.Window.minimized = false;           // The window was restored
+    if (iconified) CORE.Window[CORE.currentWindow].minimized = true;  // The window was iconified
+    else CORE.Window[CORE.currentWindow].minimized = false;           // The window was restored
 }
 
 // GLFW3 WindowFocus Callback, runs when window get/lose focus
 static void WindowFocusCallback(GLFWwindow *window, int focused)
 {
-    if (focused) CORE.Window.focused = true;    // The window was focused
-    else CORE.Window.focused = false;           // The window lost focus
+    if (focused) CORE.Window[CORE.currentWindow].focused = true;    // The window was focused
+    else CORE.Window[CORE.currentWindow].focused = false;           // The window lost focus
 }
 
 // GLFW3 Window Drop Callback, runs when drop files into window
@@ -3924,15 +3933,15 @@ static void WindowDropCallback(GLFWwindow *window, int count, const char **paths
 {
     ClearDroppedFiles();
 
-    CORE.Window.dropFilesPath = (char **)RL_MALLOC(sizeof(char *)*count);
+    CORE.Window[CORE.currentWindow].dropFilesPath = (char **)RL_MALLOC(sizeof(char *)*count);
 
     for (int i = 0; i < count; i++)
     {
-        CORE.Window.dropFilesPath[i] = (char *)RL_MALLOC(sizeof(char)*MAX_FILEPATH_LENGTH);
-        strcpy(CORE.Window.dropFilesPath[i], paths[i]);
+        CORE.Window[CORE.currentWindow].dropFilesPath[i] = (char *)RL_MALLOC(sizeof(char)*MAX_FILEPATH_LENGTH);
+        strcpy(CORE.Window[CORE.currentWindow].dropFilesPath[i], paths[i]);
     }
 
-    CORE.Window.dropFilesCount = count;
+    CORE.Window[CORE.currentWindow].dropFilesCount = count;
 }
 #endif
 
@@ -3955,22 +3964,22 @@ static void AndroidCommandCallback(struct android_app *app, int32_t cmd)
                 {
                     // Reset screen scaling to full display size
                     EGLint displayFormat;
-                    eglGetConfigAttrib(CORE.Window.device, CORE.Window.config, EGL_NATIVE_VISUAL_ID, &displayFormat);
-                    ANativeWindow_setBuffersGeometry(app->window, CORE.Window.render.width, CORE.Window.render.height, displayFormat);
+                    eglGetConfigAttrib(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, EGL_NATIVE_VISUAL_ID, &displayFormat);
+                    ANativeWindow_setBuffersGeometry(app->window, CORE.Window[CORE.currentWindow].render.width, CORE.Window[CORE.currentWindow].render.height, displayFormat);
 
                     // Recreate display surface and re-attach OpenGL context
-                    CORE.Window.surface = eglCreateWindowSurface(CORE.Window.device, CORE.Window.config, app->window, NULL);
-                    eglMakeCurrent(CORE.Window.device, CORE.Window.surface, CORE.Window.surface, CORE.Window.context);
+                    CORE.Window[CORE.currentWindow].surface = eglCreateWindowSurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].config, app->window, NULL);
+                    eglMakeCurrent(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface, CORE.Window[CORE.currentWindow].surface, CORE.Window[CORE.currentWindow].context);
 
                     CORE.Android.contextRebindRequired = false;
                 }
                 else
                 {
-                    CORE.Window.display.width  = ANativeWindow_getWidth(CORE.Android.app->window);
-                    CORE.Window.display.height = ANativeWindow_getHeight(CORE.Android.app->window);
+                    CORE.Window[CORE.currentWindow].display.width  = ANativeWindow_getWidth(CORE.Android.app->window);
+                    CORE.Window[CORE.currentWindow].display.height = ANativeWindow_getHeight(CORE.Android.app->window);
 
                     // Init graphics device (display device and OpenGL context)
-                    InitGraphicsDevice(CORE.Window.screen.width, CORE.Window.screen.height);
+                    InitGraphicsDevice(CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height);
 
                     // Init hi-res timer
                     InitTimer();
@@ -4017,8 +4026,8 @@ static void AndroidCommandCallback(struct android_app *app, int32_t cmd)
             // Dettach OpenGL context and destroy display surface
             // NOTE 1: Detaching context before destroying display surface avoids losing our resources (textures, shaders, VBOs...)
             // NOTE 2: In some cases (too many context loaded), OS could unload context automatically... :(
-            eglMakeCurrent(CORE.Window.device, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            eglDestroySurface(CORE.Window.device, CORE.Window.surface);
+            eglMakeCurrent(CORE.Window[CORE.currentWindow].device, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroySurface(CORE.Window[CORE.currentWindow].device, CORE.Window[CORE.currentWindow].surface);
 
             CORE.Android.contextRebindRequired = true;
         } break;
@@ -4186,12 +4195,12 @@ static EM_BOOL EmscriptenFullscreenChangeCallback(int eventType, const Emscripte
 /*
     if (event->isFullscreen)
     {
-        CORE.Window.fullscreen = true;
+        CORE.Window[CORE.currentWindow].fullscreen = true;
         TRACELOG(LOG_INFO, "WEB: Canvas scaled to fullscreen. ElementSize: (%ix%i), ScreenSize(%ix%i)", event->elementWidth, event->elementHeight, event->screenWidth, event->screenHeight);
     }
     else
     {
-        CORE.Window.fullscreen = false;
+        CORE.Window[CORE.currentWindow].fullscreen = false;
         TRACELOG(LOG_INFO, "WEB: Canvas scaled to windowed. ElementSize: (%ix%i), ScreenSize(%ix%i)", event->elementWidth, event->elementHeight, event->screenWidth, event->screenHeight);
     }
 
@@ -4208,8 +4217,8 @@ static EM_BOOL EmscriptenKeyboardCallback(int eventType, const EmscriptenKeyboar
         // WARNING: Not executed when pressing Esc to exit fullscreen, it seems document has priority over #canvas
         
         emscripten_exit_pointerlock();
-        CORE.Window.fullscreen = false;
-        TRACELOG(LOG_INFO, "CORE.Window.fullscreen = %s", CORE.Window.fullscreen? "true" : "false");
+        CORE.Window[CORE.currentWindow].fullscreen = false;
+        TRACELOG(LOG_INFO, "CORE.Window[CORE.currentWindow].fullscreen = %s", CORE.Window[CORE.currentWindow].fullscreen? "true" : "false");
     }
 
     return 0;
@@ -4272,7 +4281,7 @@ static EM_BOOL EmscriptenTouchCallback(int eventType, const EmscriptenTouchEvent
     //EMSCRIPTEN_RESULT res = emscripten_get_canvas_element_size("#canvas", &canvasWidth, &canvasHeight);
     emscripten_get_element_css_size("#canvas", &canvasWidth, &canvasHeight);
 
-    // Normalize gestureEvent.position[x] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[x] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x *= ((float)GetScreenWidth()/(float)canvasWidth);
     gestureEvent.position[0].y *= ((float)GetScreenHeight()/(float)canvasHeight);
     gestureEvent.position[1].x *= ((float)GetScreenWidth()/(float)canvasWidth);
@@ -4485,7 +4494,7 @@ static void ProcessKeyboard(void)
     }
 
     // Check exit key (same functionality as GLFW3 KeyCallback())
-    if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey] == 1) CORE.Window.shouldClose = true;
+    if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey] == 1) CORE.Window[CORE.currentWindow].shouldClose = true;
 
 #if defined(SUPPORT_SCREEN_CAPTURE)
     // Check screen capture key (raylib key: KEY_F12)
@@ -4774,7 +4783,7 @@ static void *EventThread(void *arg)
     bool gestureUpdate = false;
     int keycode;
 
-    while (!CORE.Window.shouldClose)
+    while (!CORE.Window[CORE.currentWindow].shouldClose)
     {
         // Try to read data from the device and only continue if successful
         if (read(worker->fd, &event, sizeof(event)) == (int)sizeof(event))
@@ -4813,7 +4822,7 @@ static void *EventThread(void *arg)
                 // Basic movement
                 if (event.code == ABS_X)
                 {
-                    CORE.Input.Mouse.position.x = (event.value - worker->absRange.x)*CORE.Window.screen.width/worker->absRange.width;   // Scale acording to absRange
+                    CORE.Input.Mouse.position.x = (event.value - worker->absRange.x)*CORE.Window[CORE.currentWindow].screen.width/worker->absRange.width;   // Scale acording to absRange
 
                     #if defined(SUPPORT_GESTURES_SYSTEM)
                         touchAction = TOUCH_MOVE;
@@ -4823,7 +4832,7 @@ static void *EventThread(void *arg)
 
                 if (event.code == ABS_Y)
                 {
-                    CORE.Input.Mouse.position.y = (event.value - worker->absRange.y)*CORE.Window.screen.height/worker->absRange.height; // Scale acording to absRange
+                    CORE.Input.Mouse.position.y = (event.value - worker->absRange.y)*CORE.Window[CORE.currentWindow].screen.height/worker->absRange.height; // Scale acording to absRange
 
                     #if defined(SUPPORT_GESTURES_SYSTEM)
                         touchAction = TOUCH_MOVE;
@@ -4836,12 +4845,12 @@ static void *EventThread(void *arg)
 
                 if (event.code == ABS_MT_POSITION_X)
                 {
-                    if (worker->touchSlot < MAX_TOUCH_POINTS) CORE.Input.Touch.position[worker->touchSlot].x = (event.value - worker->absRange.x)*CORE.Window.screen.width/worker->absRange.width;    // Scale acording to absRange
+                    if (worker->touchSlot < MAX_TOUCH_POINTS) CORE.Input.Touch.position[worker->touchSlot].x = (event.value - worker->absRange.x)*CORE.Window[CORE.currentWindow].screen.width/worker->absRange.width;    // Scale acording to absRange
                 }
 
                 if (event.code == ABS_MT_POSITION_Y)
                 {
-                    if (worker->touchSlot < MAX_TOUCH_POINTS) CORE.Input.Touch.position[worker->touchSlot].y = (event.value - worker->absRange.y)*CORE.Window.screen.height/worker->absRange.height;  // Scale acording to absRange
+                    if (worker->touchSlot < MAX_TOUCH_POINTS) CORE.Input.Touch.position[worker->touchSlot].y = (event.value - worker->absRange.y)*CORE.Window[CORE.currentWindow].screen.height/worker->absRange.height;  // Scale acording to absRange
                 }
 
                 if (event.code == ABS_MT_TRACKING_ID)
@@ -4900,7 +4909,7 @@ static void *EventThread(void *arg)
                             }
                         #endif
 
-                        if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey] == 1) CORE.Window.shouldClose = true;
+                        if (CORE.Input.Keyboard.currentKeyState[CORE.Input.Keyboard.exitKey] == 1) CORE.Window[CORE.currentWindow].shouldClose = true;
 
                         TRACELOGD("RPI: KEY_%s ScanCode: %4i KeyCode: %4i", event.value == 0 ? "UP":"DOWN", event.code, keycode);
                     }
@@ -4909,10 +4918,10 @@ static void *EventThread(void *arg)
 
             // Screen confinement
             if (CORE.Input.Mouse.position.x < 0) CORE.Input.Mouse.position.x = 0;
-            if (CORE.Input.Mouse.position.x > CORE.Window.screen.width/CORE.Input.Mouse.scale.x) CORE.Input.Mouse.position.x = CORE.Window.screen.width/CORE.Input.Mouse.scale.x;
+            if (CORE.Input.Mouse.position.x > CORE.Window[CORE.currentWindow].screen.width/CORE.Input.Mouse.scale.x) CORE.Input.Mouse.position.x = CORE.Window[CORE.currentWindow].screen.width/CORE.Input.Mouse.scale.x;
 
             if (CORE.Input.Mouse.position.y < 0) CORE.Input.Mouse.position.y = 0;
-            if (CORE.Input.Mouse.position.y > CORE.Window.screen.height/CORE.Input.Mouse.scale.y) CORE.Input.Mouse.position.y = CORE.Window.screen.height/CORE.Input.Mouse.scale.y;
+            if (CORE.Input.Mouse.position.y > CORE.Window[CORE.currentWindow].screen.height/CORE.Input.Mouse.scale.y) CORE.Input.Mouse.position.y = CORE.Window[CORE.currentWindow].screen.height/CORE.Input.Mouse.scale.y;
 
             // Gesture update
             if (gestureUpdate)
@@ -4997,7 +5006,7 @@ static void *GamepadThread(void *arg)
     // Read gamepad event
     struct js_event gamepadEvent;
 
-    while (!CORE.Window.shouldClose)
+    while (!CORE.Window[CORE.currentWindow].shouldClose)
     {
         for (int i = 0; i < MAX_GAMEPADS; i++)
         {
@@ -5097,7 +5106,7 @@ void UWPKeyDownEvent(int key, bool down, bool controlKey)
     if (key == CORE.Input.Keyboard.exitKey && down)
     {
         // Time to close the window.
-        CORE.Window.shouldClose = true;
+        CORE.Window[CORE.currentWindow].shouldClose = true;
     }
     else if (key == KEY_F12 && down)
     {
@@ -5127,7 +5136,7 @@ void UWPKeyDownEvent(int key, bool down, bool controlKey)
 
                 // NOTE: delay represents the time between frames in the gif, if we capture a gif frame every
                 // 10 game frames and each frame trakes 16.6ms (60fps), delay between gif frames should be ~16.6*10.
-                GifBegin(path, CORE.Window.screen.width, CORE.Window.screen.height, (int)(GetFrameTime() * 10.0f), 8, false);
+                GifBegin(path, CORE.Window[CORE.currentWindow].screen.width, CORE.Window[CORE.currentWindow].screen.height, (int)(GetFrameTime() * 10.0f), 8, false);
                 screenshotCounter++;
 
                 TRACELOG(LOG_INFO, "SYSTEM: Start animated GIF recording: %s", TextFormat("screenrec%03i.gif", screenshotCounter));
@@ -5181,7 +5190,7 @@ void UWPMouseButtonEvent(int button, bool down)
     // Register touch points position, only one point registered
     gestureEvent.position[0] = GetMousePosition();
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 
@@ -5211,7 +5220,7 @@ void UWPMousePosEvent(double x, double y)
     // Register touch points position, only one point registered
     gestureEvent.position[0] = CORE.Input.Mouse.position;
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 
@@ -5225,14 +5234,14 @@ void UWPResizeEvent(int width, int height)
     SetupViewport(width, height);    // Reset viewport and projection matrix for new size
 
     // Set current screen size
-    CORE.Window.screen.width = width;
-    CORE.Window.screen.height = height;
-    CORE.Window.currentFbo.width = width;
-    CORE.Window.currentFbo.height = height;
+    CORE.Window[CORE.currentWindow].screen.width = width;
+    CORE.Window[CORE.currentWindow].screen.height = height;
+    CORE.Window[CORE.currentWindow].currentFbo.width = width;
+    CORE.Window[CORE.currentWindow].currentFbo.height = height;
 
     // NOTE: Postprocessing texture is not scaled to new size
 
-    CORE.Window.resized = true;
+    CORE.Window[CORE.currentWindow].resized = true;
 }
 
 void UWPActivateGamepadEvent(int gamepad, bool active)
@@ -5276,7 +5285,7 @@ void UWPGestureMove(int pointer, float x, float y)
     gestureEvent.position[0].x = x;
     gestureEvent.position[0].y = y;
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 
@@ -5301,7 +5310,7 @@ void UWPGestureTouch(int pointer, float x, float y, bool touch)
     gestureEvent.position[0].x = x;
     gestureEvent.position[0].y = y;
 
-    // Normalize gestureEvent.position[0] for CORE.Window.screen.width and CORE.Window.screen.height
+    // Normalize gestureEvent.position[0] for CORE.Window[CORE.currentWindow].screen.width and CORE.Window[CORE.currentWindow].screen.height
     gestureEvent.position[0].x /= (float)GetScreenWidth();
     gestureEvent.position[0].y /= (float)GetScreenHeight();
 

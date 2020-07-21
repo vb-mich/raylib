@@ -888,7 +888,9 @@ typedef struct rlglData {
 // Global Variables Definition
 //----------------------------------------------------------------------------------
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-static rlglData RLGL = { 0 };
+static rlglData RLGL[MAX_CONTEXTS];
+unsigned int currentContext = 0;
+unsigned int numContexts = 0;
 #endif  // GRAPHICS_API_OPENGL_33 || GRAPHICS_API_OPENGL_ES2
 
 #if defined(GRAPHICS_API_OPENGL_ES2)
@@ -969,52 +971,57 @@ void rlMultMatrixf(float *matf) { glMultMatrixf(matf); }
 
 #elif defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
 
+void rlSetContext(unsigned int c)
+{
+    currentContext = c;
+}
+
 // Choose the current matrix to be transformed
 void rlMatrixMode(int mode)
 {
-    if (mode == RL_PROJECTION) RLGL.State.currentMatrix = &RLGL.State.projection;
-    else if (mode == RL_MODELVIEW) RLGL.State.currentMatrix = &RLGL.State.modelview;
+    if (mode == RL_PROJECTION) RLGL[currentContext].State.currentMatrix = &RLGL[currentContext].State.projection;
+    else if (mode == RL_MODELVIEW) RLGL[currentContext].State.currentMatrix = &RLGL[currentContext].State.modelview;
     //else if (mode == RL_TEXTURE) // Not supported
 
-    RLGL.State.currentMatrixMode = mode;
+    RLGL[currentContext].State.currentMatrixMode = mode;
 }
 
-// Push the current matrix into RLGL.State.stack
+// Push the current matrix into RLGL[currentContext].State.stack
 void rlPushMatrix(void)
 {
-    if (RLGL.State.stackCounter >= MAX_MATRIX_STACK_SIZE) TRACELOG(LOG_ERROR, "RLGL: Matrix stack overflow (MAX_MATRIX_STACK_SIZE)");
+    if (RLGL[currentContext].State.stackCounter >= MAX_MATRIX_STACK_SIZE) TRACELOG(LOG_ERROR, "RLGL: Matrix stack overflow (MAX_MATRIX_STACK_SIZE)");
 
-    if (RLGL.State.currentMatrixMode == RL_MODELVIEW)
+    if (RLGL[currentContext].State.currentMatrixMode == RL_MODELVIEW)
     {
-        RLGL.State.transformRequired = true;
-        RLGL.State.currentMatrix = &RLGL.State.transform;
+        RLGL[currentContext].State.transformRequired = true;
+        RLGL[currentContext].State.currentMatrix = &RLGL[currentContext].State.transform;
     }
 
-    RLGL.State.stack[RLGL.State.stackCounter] = *RLGL.State.currentMatrix;
-    RLGL.State.stackCounter++;
+    RLGL[currentContext].State.stack[RLGL[currentContext].State.stackCounter] = *RLGL[currentContext].State.currentMatrix;
+    RLGL[currentContext].State.stackCounter++;
 }
 
-// Pop lattest inserted matrix from RLGL.State.stack
+// Pop lattest inserted matrix from RLGL[currentContext].State.stack
 void rlPopMatrix(void)
 {
-    if (RLGL.State.stackCounter > 0)
+    if (RLGL[currentContext].State.stackCounter > 0)
     {
-        Matrix mat = RLGL.State.stack[RLGL.State.stackCounter - 1];
-        *RLGL.State.currentMatrix = mat;
-        RLGL.State.stackCounter--;
+        Matrix mat = RLGL[currentContext].State.stack[RLGL[currentContext].State.stackCounter - 1];
+        *RLGL[currentContext].State.currentMatrix = mat;
+        RLGL[currentContext].State.stackCounter--;
     }
 
-    if ((RLGL.State.stackCounter == 0) && (RLGL.State.currentMatrixMode == RL_MODELVIEW))
+    if ((RLGL[currentContext].State.stackCounter == 0) && (RLGL[currentContext].State.currentMatrixMode == RL_MODELVIEW))
     {
-        RLGL.State.currentMatrix = &RLGL.State.modelview;
-        RLGL.State.transformRequired = false;
+        RLGL[currentContext].State.currentMatrix = &RLGL[currentContext].State.modelview;
+        RLGL[currentContext].State.transformRequired = false;
     }
 }
 
 // Reset current matrix to identity matrix
 void rlLoadIdentity(void)
 {
-    *RLGL.State.currentMatrix = MatrixIdentity();
+    *RLGL[currentContext].State.currentMatrix = MatrixIdentity();
 }
 
 // Multiply the current matrix by a translation matrix
@@ -1023,7 +1030,7 @@ void rlTranslatef(float x, float y, float z)
     Matrix matTranslation = MatrixTranslate(x, y, z);
 
     // NOTE: We transpose matrix with multiplication order
-    *RLGL.State.currentMatrix = MatrixMultiply(matTranslation, *RLGL.State.currentMatrix);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(matTranslation, *RLGL[currentContext].State.currentMatrix);
 }
 
 // Multiply the current matrix by a rotation matrix
@@ -1035,7 +1042,7 @@ void rlRotatef(float angleDeg, float x, float y, float z)
     matRotation = MatrixRotate(Vector3Normalize(axis), angleDeg*DEG2RAD);
 
     // NOTE: We transpose matrix with multiplication order
-    *RLGL.State.currentMatrix = MatrixMultiply(matRotation, *RLGL.State.currentMatrix);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(matRotation, *RLGL[currentContext].State.currentMatrix);
 }
 
 // Multiply the current matrix by a scaling matrix
@@ -1044,7 +1051,7 @@ void rlScalef(float x, float y, float z)
     Matrix matScale = MatrixScale(x, y, z);
 
     // NOTE: We transpose matrix with multiplication order
-    *RLGL.State.currentMatrix = MatrixMultiply(matScale, *RLGL.State.currentMatrix);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(matScale, *RLGL[currentContext].State.currentMatrix);
 }
 
 // Multiply the current matrix by another matrix
@@ -1056,7 +1063,7 @@ void rlMultMatrixf(float *matf)
                    matf[2], matf[6], matf[10], matf[14],
                    matf[3], matf[7], matf[11], matf[15] };
 
-    *RLGL.State.currentMatrix = MatrixMultiply(*RLGL.State.currentMatrix, mat);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(*RLGL[currentContext].State.currentMatrix, mat);
 }
 
 // Multiply the current matrix by a perspective matrix generated by parameters
@@ -1064,7 +1071,7 @@ void rlFrustum(double left, double right, double bottom, double top, double znea
 {
     Matrix matPerps = MatrixFrustum(left, right, bottom, top, znear, zfar);
 
-    *RLGL.State.currentMatrix = MatrixMultiply(*RLGL.State.currentMatrix, matPerps);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(*RLGL[currentContext].State.currentMatrix, matPerps);
 }
 
 // Multiply the current matrix by an orthographic matrix generated by parameters
@@ -1072,13 +1079,13 @@ void rlOrtho(double left, double right, double bottom, double top, double znear,
 {
     Matrix matOrtho = MatrixOrtho(left, right, bottom, top, znear, zfar);
 
-    *RLGL.State.currentMatrix = MatrixMultiply(*RLGL.State.currentMatrix, matOrtho);
+    *RLGL[currentContext].State.currentMatrix = MatrixMultiply(*RLGL[currentContext].State.currentMatrix, matOrtho);
 }
 
 #endif
 
 // Set the viewport area (transformation from normalized device coordinates to window coordinates)
-// NOTE: Updates global variables: RLGL.State.framebufferWidth, RLGL.State.framebufferHeight
+// NOTE: Updates global variables: RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight
 void rlViewport(int x, int y, int width, int height)
 {
     glViewport(x, y, width, height);
@@ -1119,36 +1126,36 @@ void rlBegin(int mode)
 {
     // Draw mode can be RL_LINES, RL_TRIANGLES and RL_QUADS
     // NOTE: In all three cases, vertex are accumulated over default internal vertex buffer
-    if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode != mode)
+    if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode != mode)
     {
-        if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount > 0)
+        if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount > 0)
         {
-            // Make sure current RLGL.currentBatch->draws[i].vertexCount is aligned a multiple of 4,
+            // Make sure current RLGL[currentContext].currentBatch->draws[i].vertexCount is aligned a multiple of 4,
             // that way, following QUADS drawing will keep aligned with index processing
             // It implies adding some extra alignment vertex at the end of the draw,
             // those vertex are not processed but they are considered as an additional offset
             // for the next set of vertex to be drawn
-            if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode == RL_LINES) RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount < 4)? RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount : RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount%4);
-            else if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode == RL_TRIANGLES) RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount < 4)? 1 : (4 - (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount%4)));
+            if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode == RL_LINES) RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount < 4)? RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount : RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount%4);
+            else if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode == RL_TRIANGLES) RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount < 4)? 1 : (4 - (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount%4)));
 
-            else RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = 0;
+            else RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = 0;
 
-            if (rlCheckBufferLimit(RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment)) rlglDraw();
+            if (rlCheckBufferLimit(RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment)) rlglDraw();
             else
             {
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
 
-                RLGL.currentBatch->drawsCounter++;
+                RLGL[currentContext].currentBatch->drawsCounter++;
             }
         }
 
-        if (RLGL.currentBatch->drawsCounter >= DEFAULT_BATCH_DRAWCALLS) rlglDraw();
+        if (RLGL[currentContext].currentBatch->drawsCounter >= DEFAULT_BATCH_DRAWCALLS) rlglDraw();
 
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode = mode;
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount = 0;
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].textureId = RLGL.State.defaultTextureId;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode = mode;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount = 0;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].textureId = RLGL[currentContext].State.defaultTextureId;
     }
 }
 
@@ -1159,30 +1166,30 @@ void rlEnd(void)
     // NOTE: In OpenGL 1.1, one glColor call can be made for all the subsequent glVertex calls
 
     // Make sure colors count match vertex count
-    if (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter != RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter)
+    if (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter != RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter)
     {
-        int addColors = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter - RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter;
+        int addColors = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter - RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter;
 
         for (int i = 0; i < addColors; i++)
         {
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter] = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter - 4];
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 1] = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter - 3];
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 2] = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter - 2];
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 3] = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter - 1];
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter++;
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter] = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter - 4];
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 1] = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter - 3];
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 2] = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter - 2];
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 3] = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter - 1];
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter++;
         }
     }
 
     // Make sure texcoords count match vertex count
-    if (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter != RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter)
+    if (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter != RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter)
     {
-        int addTexCoords = RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter - RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter;
+        int addTexCoords = RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter - RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter;
 
         for (int i = 0; i < addTexCoords; i++)
         {
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].texcoords[2*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter] = 0.0f;
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].texcoords[2*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter + 1] = 0.0f;
-            RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter++;
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].texcoords[2*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter] = 0.0f;
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].texcoords[2*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter + 1] = 0.0f;
+            RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter++;
         }
     }
 
@@ -1191,16 +1198,16 @@ void rlEnd(void)
     // NOTE: Depth increment is dependant on rlOrtho(): z-near and z-far values,
     // as well as depth buffer bit-depth (16bit or 24bit or 32bit)
     // Correct increment formula would be: depthInc = (zfar - znear)/pow(2, bits)
-    RLGL.currentBatch->currentDepth += (1.0f/20000.0f);
+    RLGL[currentContext].currentBatch->currentDepth += (1.0f/20000.0f);
 
     // Verify internal buffers limits
     // NOTE: This check is combined with usage of rlCheckBufferLimit()
-    if ((RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter) >= (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].elementsCount*4 - 4))
+    if ((RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter) >= (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].elementsCount*4 - 4))
     {
         // WARNING: If we are between rlPushMatrix() and rlPopMatrix() and we need to force a rlglDraw(),
-        // we need to call rlPopMatrix() before to recover *RLGL.State.currentMatrix (RLGL.State.modelview) for the next forced draw call!
-        // If we have multiple matrix pushed, it will require "RLGL.State.stackCounter" pops before launching the draw
-        for (int i = RLGL.State.stackCounter; i >= 0; i--) rlPopMatrix();
+        // we need to call rlPopMatrix() before to recover *RLGL[currentContext].State.currentMatrix (RLGL[currentContext].State.modelview) for the next forced draw call!
+        // If we have multiple matrix pushed, it will require "RLGL[currentContext].State.stackCounter" pops before launching the draw
+        for (int i = RLGL[currentContext].State.stackCounter; i >= 0; i--) rlPopMatrix();
         rlglDraw();
     }
 }
@@ -1212,17 +1219,17 @@ void rlVertex3f(float x, float y, float z)
     Vector3 vec = { x, y, z };
 
     // Transform provided vector if required
-    if (RLGL.State.transformRequired) vec = Vector3Transform(vec, RLGL.State.transform);
+    if (RLGL[currentContext].State.transformRequired) vec = Vector3Transform(vec, RLGL[currentContext].State.transform);
 
     // Verify that current vertex buffer elements limit has not been reached
-    if (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter < (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].elementsCount*4))
+    if (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter < (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].elementsCount*4))
     {
-        RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vertices[3*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter] = vec.x;
-        RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vertices[3*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter + 1] = vec.y;
-        RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vertices[3*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter + 2] = vec.z;
-        RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter++;
+        RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vertices[3*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter] = vec.x;
+        RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vertices[3*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter + 1] = vec.y;
+        RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vertices[3*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter + 2] = vec.z;
+        RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter++;
 
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount++;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount++;
     }
     else TRACELOG(LOG_ERROR, "RLGL: Batch elements overflow");
 }
@@ -1230,22 +1237,22 @@ void rlVertex3f(float x, float y, float z)
 // Define one vertex (position)
 void rlVertex2f(float x, float y)
 {
-    rlVertex3f(x, y, RLGL.currentBatch->currentDepth);
+    rlVertex3f(x, y, RLGL[currentContext].currentBatch->currentDepth);
 }
 
 // Define one vertex (position)
 void rlVertex2i(int x, int y)
 {
-    rlVertex3f((float)x, (float)y, RLGL.currentBatch->currentDepth);
+    rlVertex3f((float)x, (float)y, RLGL[currentContext].currentBatch->currentDepth);
 }
 
 // Define one vertex (texture coordinate)
 // NOTE: Texture coordinates are limited to QUADS only
 void rlTexCoord2f(float x, float y)
 {
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].texcoords[2*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter] = x;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].texcoords[2*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter + 1] = y;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter++;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].texcoords[2*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter] = x;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].texcoords[2*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter + 1] = y;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter++;
 }
 
 // Define one vertex (normal)
@@ -1258,11 +1265,11 @@ void rlNormal3f(float x, float y, float z)
 // Define one vertex (color)
 void rlColor4ub(byte x, byte y, byte z, byte w)
 {
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter] = x;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 1] = y;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 2] = z;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].colors[4*RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter + 3] = w;
-    RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter++;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter] = x;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 1] = y;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 2] = z;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].colors[4*RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter + 3] = w;
+    RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter++;
 }
 
 // Define one vertex (color)
@@ -1292,35 +1299,35 @@ void rlEnableTexture(unsigned int id)
 #endif
 
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].textureId != id)
+    if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].textureId != id)
     {
-        if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount > 0)
+        if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount > 0)
         {
-            // Make sure current RLGL.currentBatch->draws[i].vertexCount is aligned a multiple of 4,
+            // Make sure current RLGL[currentContext].currentBatch->draws[i].vertexCount is aligned a multiple of 4,
             // that way, following QUADS drawing will keep aligned with index processing
             // It implies adding some extra alignment vertex at the end of the draw,
             // those vertex are not processed but they are considered as an additional offset
             // for the next set of vertex to be drawn
-            if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode == RL_LINES) RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount < 4)? RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount : RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount%4);
-            else if (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].mode == RL_TRIANGLES) RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount < 4)? 1 : (4 - (RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount%4)));
+            if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode == RL_LINES) RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount < 4)? RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount : RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount%4);
+            else if (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].mode == RL_TRIANGLES) RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = ((RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount < 4)? 1 : (4 - (RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount%4)));
 
-            else RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment = 0;
+            else RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment = 0;
 
-            if (rlCheckBufferLimit(RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment)) rlglDraw();
+            if (rlCheckBufferLimit(RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment)) rlglDraw();
             else
             {
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].cCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
-                RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].tcCounter += RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].cCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
+                RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].tcCounter += RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexAlignment;
 
-                RLGL.currentBatch->drawsCounter++;
+                RLGL[currentContext].currentBatch->drawsCounter++;
             }
         }
 
-        if (RLGL.currentBatch->drawsCounter >= DEFAULT_BATCH_DRAWCALLS) rlglDraw();
+        if (RLGL[currentContext].currentBatch->drawsCounter >= DEFAULT_BATCH_DRAWCALLS) rlglDraw();
 
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].textureId = id;
-        RLGL.currentBatch->draws[RLGL.currentBatch->drawsCounter - 1].vertexCount = 0;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].textureId = id;
+        RLGL[currentContext].currentBatch->draws[RLGL[currentContext].currentBatch->drawsCounter - 1].vertexCount = 0;
     }
 #endif
 }
@@ -1334,7 +1341,7 @@ void rlDisableTexture(void)
 #else
     // NOTE: If quads batch limit is reached,
     // we force a draw call and next batch starts
-    if (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter >= (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].elementsCount*4)) rlglDraw();
+    if (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter >= (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].elementsCount*4)) rlglDraw();
 #endif
 }
 
@@ -1351,7 +1358,7 @@ void rlTextureParameters(unsigned int id, int param, int value)
             if (value == RL_WRAP_MIRROR_CLAMP)
             {
 #if !defined(GRAPHICS_API_OPENGL_11)
-                if (RLGL.ExtSupported.texMirrorClamp) glTexParameteri(GL_TEXTURE_2D, param, value);
+                if (RLGL[currentContext].ExtSupported.texMirrorClamp) glTexParameteri(GL_TEXTURE_2D, param, value);
                 else TRACELOG(LOG_WARNING, "GL: Clamp mirror wrap mode not supported (GL_MIRROR_CLAMP_EXT)");
 #endif
             }
@@ -1363,10 +1370,10 @@ void rlTextureParameters(unsigned int id, int param, int value)
         case RL_TEXTURE_ANISOTROPIC_FILTER:
         {
 #if !defined(GRAPHICS_API_OPENGL_11)
-            if (value <= RLGL.ExtSupported.maxAnisotropicLevel) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, (float)value);
-            else if (RLGL.ExtSupported.maxAnisotropicLevel > 0.0f)
+            if (value <= RLGL[currentContext].ExtSupported.maxAnisotropicLevel) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, (float)value);
+            else if (RLGL[currentContext].ExtSupported.maxAnisotropicLevel > 0.0f)
             {
-                TRACELOG(LOG_WARNING, "GL: Maximum anisotropic filter level supported is %iX", id, RLGL.ExtSupported.maxAnisotropicLevel);
+                TRACELOG(LOG_WARNING, "GL: Maximum anisotropic filter level supported is %iX", id, RLGL[currentContext].ExtSupported.maxAnisotropicLevel);
                 glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, (float)value);
             }
             else TRACELOG(LOG_WARNING, "GL: Anisotropic filtering not supported");
@@ -1474,7 +1481,7 @@ void rlDeleteShader(unsigned int id)
 void rlDeleteVertexArrays(unsigned int id)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.ExtSupported.vao)
+    if (RLGL[currentContext].ExtSupported.vao)
     {
         if (id != 0) glDeleteVertexArrays(1, &id);
         TRACELOG(LOG_INFO, "VAO: [ID %i] Unloaded vertex data from VRAM (GPU)", id);
@@ -1489,7 +1496,7 @@ void rlDeleteBuffers(unsigned int id)
     if (id != 0)
     {
         glDeleteBuffers(1, &id);
-        if (!RLGL.ExtSupported.vao) TRACELOG(LOG_INFO, "VBO: [ID %i] Unloaded vertex data from VRAM (GPU)", id);
+        if (!RLGL[currentContext].ExtSupported.vao) TRACELOG(LOG_INFO, "VBO: [ID %i] Unloaded vertex data from VRAM (GPU)", id);
     }
 #endif
 }
@@ -1529,6 +1536,10 @@ void rlUpdateBuffer(int bufferId, void *data, int dataSize)
 // Initialize rlgl: OpenGL extensions, default buffers/shaders/textures, OpenGL states
 void rlglInit(int width, int height)
 {
+    currentContext = numContexts;
+    if (numContexts == 0) //initialize the struct for the first time
+        memset(RLGL, 0, sizeof(rlglData) * MAX_CONTEXTS);
+    numContexts++;
     // Check OpenGL information and capabilities
     //------------------------------------------------------------------------------
     // Print current OpenGL and GLSL version
@@ -1568,12 +1579,12 @@ void rlglInit(int width, int height)
 
 #if defined(GRAPHICS_API_OPENGL_33) && !defined(GRAPHICS_API_OPENGL_21)
     // NOTE: On OpenGL 3.3 VAO and NPOT are supported by default
-    RLGL.ExtSupported.vao = true;
+    RLGL[currentContext].ExtSupported.vao = true;
 
     // Multiple texture extensions supported by default
-    RLGL.ExtSupported.texNPOT = true;
-    RLGL.ExtSupported.texFloat32 = true;
-    RLGL.ExtSupported.texDepth = true;
+    RLGL[currentContext].ExtSupported.texNPOT = true;
+    RLGL[currentContext].ExtSupported.texFloat32 = true;
+    RLGL[currentContext].ExtSupported.texDepth = true;
 
     // We get a list of available extensions and we check for some of them (compressed textures)
     // NOTE: We don't need to check again supported extensions but we do (GLAD already dealt with that)
@@ -1633,53 +1644,53 @@ void rlglInit(int width, int height)
             glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSOESPROC)eglGetProcAddress("glDeleteVertexArraysOES");
             //glIsVertexArray = (PFNGLISVERTEXARRAYOESPROC)eglGetProcAddress("glIsVertexArrayOES");     // NOTE: Fails in WebGL, omitted
 
-            if ((glGenVertexArrays != NULL) && (glBindVertexArray != NULL) && (glDeleteVertexArrays != NULL)) RLGL.ExtSupported.vao = true;
+            if ((glGenVertexArrays != NULL) && (glBindVertexArray != NULL) && (glDeleteVertexArrays != NULL)) RLGL[currentContext].ExtSupported.vao = true;
         }
 
         // Check NPOT textures support
         // NOTE: Only check on OpenGL ES, OpenGL 3.3 has NPOT textures full support as core feature
-        if (strcmp(extList[i], (const char *)"GL_OES_texture_npot") == 0) RLGL.ExtSupported.texNPOT = true;
+        if (strcmp(extList[i], (const char*)"GL_OES_texture_npot") == 0) RLGL[currentContext].ExtSupported.texNPOT = true;
 
         // Check texture float support
-        if (strcmp(extList[i], (const char *)"GL_OES_texture_float") == 0) RLGL.ExtSupported.texFloat32 = true;
+        if (strcmp(extList[i], (const char*)"GL_OES_texture_float") == 0) RLGL[currentContext].ExtSupported.texFloat32 = true;
 
         // Check depth texture support
-        if ((strcmp(extList[i], (const char *)"GL_OES_depth_texture") == 0) ||
-            (strcmp(extList[i], (const char *)"GL_WEBGL_depth_texture") == 0)) RLGL.ExtSupported.texDepth = true;
+        if ((strcmp(extList[i], (const char*)"GL_OES_depth_texture") == 0) ||
+            (strcmp(extList[i], (const char*)"GL_WEBGL_depth_texture") == 0)) RLGL[currentContext].ExtSupported.texDepth = true;
 
-        if (strcmp(extList[i], (const char *)"GL_OES_depth24") == 0) RLGL.ExtSupported.maxDepthBits = 24;
-        if (strcmp(extList[i], (const char *)"GL_OES_depth32") == 0) RLGL.ExtSupported.maxDepthBits = 32;
+        if (strcmp(extList[i], (const char*)"GL_OES_depth24") == 0) RLGL[currentContext].ExtSupported.maxDepthBits = 24;
+        if (strcmp(extList[i], (const char*)"GL_OES_depth32") == 0) RLGL[currentContext].ExtSupported.maxDepthBits = 32;
 #endif
         // DDS texture compression support
-        if ((strcmp(extList[i], (const char *)"GL_EXT_texture_compression_s3tc") == 0) ||
-            (strcmp(extList[i], (const char *)"GL_WEBGL_compressed_texture_s3tc") == 0) ||
-            (strcmp(extList[i], (const char *)"GL_WEBKIT_WEBGL_compressed_texture_s3tc") == 0)) RLGL.ExtSupported.texCompDXT = true;
+        if ((strcmp(extList[i], (const char*)"GL_EXT_texture_compression_s3tc") == 0) ||
+            (strcmp(extList[i], (const char*)"GL_WEBGL_compressed_texture_s3tc") == 0) ||
+            (strcmp(extList[i], (const char*)"GL_WEBKIT_WEBGL_compressed_texture_s3tc") == 0)) RLGL[currentContext].ExtSupported.texCompDXT = true;
 
         // ETC1 texture compression support
-        if ((strcmp(extList[i], (const char *)"GL_OES_compressed_ETC1_RGB8_texture") == 0) ||
-            (strcmp(extList[i], (const char *)"GL_WEBGL_compressed_texture_etc1") == 0)) RLGL.ExtSupported.texCompETC1 = true;
+        if ((strcmp(extList[i], (const char*)"GL_OES_compressed_ETC1_RGB8_texture") == 0) ||
+            (strcmp(extList[i], (const char*)"GL_WEBGL_compressed_texture_etc1") == 0)) RLGL[currentContext].ExtSupported.texCompETC1 = true;
 
         // ETC2/EAC texture compression support
-        if (strcmp(extList[i], (const char *)"GL_ARB_ES3_compatibility") == 0) RLGL.ExtSupported.texCompETC2 = true;
+        if (strcmp(extList[i], (const char*)"GL_ARB_ES3_compatibility") == 0) RLGL[currentContext].ExtSupported.texCompETC2 = true;
 
         // PVR texture compression support
-        if (strcmp(extList[i], (const char *)"GL_IMG_texture_compression_pvrtc") == 0) RLGL.ExtSupported.texCompPVRT = true;
+        if (strcmp(extList[i], (const char*)"GL_IMG_texture_compression_pvrtc") == 0) RLGL[currentContext].ExtSupported.texCompPVRT = true;
 
         // ASTC texture compression support
-        if (strcmp(extList[i], (const char *)"GL_KHR_texture_compression_astc_hdr") == 0) RLGL.ExtSupported.texCompASTC = true;
+        if (strcmp(extList[i], (const char*)"GL_KHR_texture_compression_astc_hdr") == 0) RLGL[currentContext].ExtSupported.texCompASTC = true;
 
         // Anisotropic texture filter support
-        if (strcmp(extList[i], (const char *)"GL_EXT_texture_filter_anisotropic") == 0)
+        if (strcmp(extList[i], (const char*)"GL_EXT_texture_filter_anisotropic") == 0)
         {
-            RLGL.ExtSupported.texAnisoFilter = true;
-            glGetFloatv(0x84FF, &RLGL.ExtSupported.maxAnisotropicLevel);   // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+            RLGL[currentContext].ExtSupported.texAnisoFilter = true;
+            glGetFloatv(0x84FF, &RLGL[currentContext].ExtSupported.maxAnisotropicLevel);   // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
         }
 
         // Clamp mirror wrap mode supported
-        if (strcmp(extList[i], (const char *)"GL_EXT_texture_mirror_clamp") == 0) RLGL.ExtSupported.texMirrorClamp = true;
+        if (strcmp(extList[i], (const char*)"GL_EXT_texture_mirror_clamp") == 0) RLGL[currentContext].ExtSupported.texMirrorClamp = true;
 
         // Debug marker support
-        if (strcmp(extList[i], (const char *)"GL_EXT_debug_marker") == 0) RLGL.ExtSupported.debugMarker = true;
+        if (strcmp(extList[i], (const char*)"GL_EXT_debug_marker") == 0) RLGL[currentContext].ExtSupported.debugMarker = true;
     }
 
     // Free extensions pointers
@@ -1690,49 +1701,48 @@ void rlglInit(int width, int height)
 #endif
 
 #if defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.ExtSupported.vao) TRACELOG(LOG_INFO, "GL: VAO extension detected, VAO functions initialized successfully");
+    if (RLGL[currentContext].ExtSupported.vao) TRACELOG(LOG_INFO, "GL: VAO extension detected, VAO functions initialized successfully");
     else TRACELOG(LOG_WARNING, "GL: VAO extension not found, VAO usage not supported");
 
-    if (RLGL.ExtSupported.texNPOT) TRACELOG(LOG_INFO, "GL: NPOT textures extension detected, full NPOT textures supported");
+    if (RLGL[currentContext].ExtSupported.texNPOT) TRACELOG(LOG_INFO, "GL: NPOT textures extension detected, full NPOT textures supported");
     else TRACELOG(LOG_WARNING, "GL: NPOT textures extension not found, limited NPOT support (no-mipmaps, no-repeat)");
 #endif
 
-    if (RLGL.ExtSupported.texCompDXT) TRACELOG(LOG_INFO, "GL: DXT compressed textures supported");
-    if (RLGL.ExtSupported.texCompETC1) TRACELOG(LOG_INFO, "GL: ETC1 compressed textures supported");
-    if (RLGL.ExtSupported.texCompETC2) TRACELOG(LOG_INFO, "GL: ETC2/EAC compressed textures supported");
-    if (RLGL.ExtSupported.texCompPVRT) TRACELOG(LOG_INFO, "GL: PVRT compressed textures supported");
-    if (RLGL.ExtSupported.texCompASTC) TRACELOG(LOG_INFO, "GL: ASTC compressed textures supported");
+    if (RLGL[currentContext].ExtSupported.texCompDXT) TRACELOG(LOG_INFO, "GL: DXT compressed textures supported");
+    if (RLGL[currentContext].ExtSupported.texCompETC1) TRACELOG(LOG_INFO, "GL: ETC1 compressed textures supported");
+    if (RLGL[currentContext].ExtSupported.texCompETC2) TRACELOG(LOG_INFO, "GL: ETC2/EAC compressed textures supported");
+    if (RLGL[currentContext].ExtSupported.texCompPVRT) TRACELOG(LOG_INFO, "GL: PVRT compressed textures supported");
+    if (RLGL[currentContext].ExtSupported.texCompASTC) TRACELOG(LOG_INFO, "GL: ASTC compressed textures supported");
 
-    if (RLGL.ExtSupported.texAnisoFilter) TRACELOG(LOG_INFO, "GL: Anisotropic textures filtering supported (max: %.0fX)", RLGL.ExtSupported.maxAnisotropicLevel);
-    if (RLGL.ExtSupported.texMirrorClamp) TRACELOG(LOG_INFO, "GL: Mirror clamp wrap texture mode supported");
+    if (RLGL[currentContext].ExtSupported.texAnisoFilter) TRACELOG(LOG_INFO, "GL: Anisotropic textures filtering supported (max: %.0fX)", RLGL[currentContext].ExtSupported.maxAnisotropicLevel);
+    if (RLGL[currentContext].ExtSupported.texMirrorClamp) TRACELOG(LOG_INFO, "GL: Mirror clamp wrap texture mode supported");
 
-    if (RLGL.ExtSupported.debugMarker) TRACELOG(LOG_INFO, "GL: Debug Marker supported");
+    if (RLGL[currentContext].ExtSupported.debugMarker) TRACELOG(LOG_INFO, "GL: Debug Marker supported");
 
     // Initialize buffers, default shaders and default textures
     //----------------------------------------------------------
     // Init default white texture
     unsigned char pixels[4] = { 255, 255, 255, 255 };   // 1 pixel RGBA (4 bytes)
-    RLGL.State.defaultTextureId = rlLoadTexture(pixels, 1, 1, UNCOMPRESSED_R8G8B8A8, 1);
+    RLGL[currentContext].State.defaultTextureId = rlLoadTexture(pixels, 1, 1, UNCOMPRESSED_R8G8B8A8, 1);
 
-    if (RLGL.State.defaultTextureId != 0) TRACELOG(LOG_INFO, "TEXTURE: [ID %i] Default texture loaded successfully", RLGL.State.defaultTextureId);
+    if (RLGL[currentContext].State.defaultTextureId != 0) TRACELOG(LOG_INFO, "TEXTURE: [ID %i] Default texture loaded successfully", RLGL[currentContext].State.defaultTextureId);
     else TRACELOG(LOG_WARNING, "TEXTURE: Failed to load default texture");
 
     // Init default Shader (customized for GL 3.3 and ES2)
-    RLGL.State.defaultShader = LoadShaderDefault();
-    RLGL.State.currentShader = RLGL.State.defaultShader;
-
+    RLGL[currentContext].State.defaultShader = LoadShaderDefault();
+    RLGL[currentContext].State.currentShader = RLGL[currentContext].State.defaultShader;
     // Init default vertex arrays buffers
-    RLGL.defaultBatch = LoadRenderBatch(DEFAULT_BATCH_BUFFERS, DEFAULT_BATCH_BUFFER_ELEMENTS);
-    RLGL.currentBatch = &RLGL.defaultBatch;
+    RLGL[currentContext].defaultBatch = LoadRenderBatch(DEFAULT_BATCH_BUFFERS, DEFAULT_BATCH_BUFFER_ELEMENTS);
+    RLGL[currentContext].currentBatch = &RLGL[currentContext].defaultBatch;
 
     // Init stack matrices (emulating OpenGL 1.1)
-    for (int i = 0; i < MAX_MATRIX_STACK_SIZE; i++) RLGL.State.stack[i] = MatrixIdentity();
+    for (int i = 0; i < MAX_MATRIX_STACK_SIZE; i++) RLGL[currentContext].State.stack[i] = MatrixIdentity();
 
     // Init internal matrices
-    RLGL.State.transform = MatrixIdentity();
-    RLGL.State.projection = MatrixIdentity();
-    RLGL.State.modelview = MatrixIdentity();
-    RLGL.State.currentMatrix = &RLGL.State.modelview;
+    RLGL[currentContext].State.transform = MatrixIdentity();
+    RLGL[currentContext].State.projection = MatrixIdentity();
+    RLGL[currentContext].State.modelview = MatrixIdentity();
+    RLGL[currentContext].State.currentMatrix = &RLGL[currentContext].State.modelview;
 
 #endif      // GRAPHICS_API_OPENGL_33 || GRAPHICS_API_OPENGL_ES2
 
@@ -1764,28 +1774,29 @@ void rlglInit(int width, int height)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);     // Clear color and depth buffers (depth buffer required for 3D)
 
 #if defined(GRAPHICS_API_OPENGL_ES2) || defined(GRAPHICS_API_OPENGL_21)
-    // Store screen size into global variables
-    RLGL.State.framebufferWidth = width;
-    RLGL.State.framebufferHeight = height;
+// Store screen size into global variables
+        RLGL[currentContext].State.framebufferWidth = width;
+        RLGL[currentContext].State.framebufferHeight = height;
 
-    // Init texture and rectangle used on basic shapes drawing
-    RLGL.State.shapesTexture = GetTextureDefault();
-    RLGL.State.shapesTextureRec = (Rectangle){ 0.0f, 0.0f, 1.0f, 1.0f };
+        // Init texture and rectangle used on basic shapes drawing
+        RLGL[currentContext].State.shapesTexture = GetTextureDefault();
+        RLGL[currentContext].State.shapesTextureRec = (Rectangle){ 0.0f, 0.0f, 1.0f, 1.0f };
 #endif
 
-    TRACELOG(LOG_INFO, "RLGL: Default state initialized successfully");
+        TRACELOG(LOG_INFO, "RLGL: Default state initialized successfully");
+
 }
 
 // Vertex Buffer Object deinitialization (memory free)
 void rlglClose(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    UnloadRenderBatch(RLGL.defaultBatch);
+    UnloadRenderBatch(RLGL[currentContext].defaultBatch);
 
     UnloadShaderDefault();          // Unload default shader
-    glDeleteTextures(1, &RLGL.State.defaultTextureId); // Unload default texture
+    glDeleteTextures(1, &RLGL[currentContext].State.defaultTextureId); // Unload default texture
 
-    TRACELOG(LOG_INFO, "TEXTURE: [ID %i] Unloaded default texture data from VRAM (GPU)", RLGL.State.defaultTextureId);
+    TRACELOG(LOG_INFO, "TEXTURE: [ID %i] Unloaded default texture data from VRAM (GPU)", RLGL[currentContext].State.defaultTextureId);
 #endif
 }
 
@@ -1793,7 +1804,7 @@ void rlglClose(void)
 void rlglDraw(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    DrawRenderBatch(RLGL.currentBatch);    // NOTE: Stereo rendering is checked inside
+    DrawRenderBatch(RLGL[currentContext].currentBatch);    // NOTE: Stereo rendering is checked inside
 #endif
 }
 
@@ -1820,7 +1831,7 @@ bool rlCheckBufferLimit(int vCount)
 {
     bool overflow = false;
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if ((RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].vCounter + vCount) >= (RLGL.currentBatch->vertexBuffer[RLGL.currentBatch->currentBuffer].elementsCount*4)) overflow = true;
+    if ((RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].vCounter + vCount) >= (RLGL[currentContext].currentBatch->vertexBuffer[RLGL[currentContext].currentBatch->currentBuffer].elementsCount*4)) overflow = true;
 #endif
     return overflow;
 }
@@ -1829,7 +1840,7 @@ bool rlCheckBufferLimit(int vCount)
 void rlSetDebugMarker(const char *text)
 {
 #if defined(GRAPHICS_API_OPENGL_33)
-    if (RLGL.ExtSupported.debugMarker) glInsertEventMarkerEXT(0, text);
+    if (RLGL[currentContext].ExtSupported.debugMarker) glInsertEventMarkerEXT(0, text);
 #endif
 }
 
@@ -1894,32 +1905,32 @@ unsigned int rlLoadTexture(void *data, int width, int height, int format, int mi
         return id;
     }
 #else
-    if ((!RLGL.ExtSupported.texCompDXT) && ((format == COMPRESSED_DXT1_RGB) || (format == COMPRESSED_DXT1_RGBA) ||
+    if ((!RLGL[currentContext].ExtSupported.texCompDXT) && ((format == COMPRESSED_DXT1_RGB) || (format == COMPRESSED_DXT1_RGBA) ||
         (format == COMPRESSED_DXT3_RGBA) || (format == COMPRESSED_DXT5_RGBA)))
     {
         TRACELOG(LOG_WARNING, "GL: DXT compressed texture format not supported");
         return id;
     }
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if ((!RLGL.ExtSupported.texCompETC1) && (format == COMPRESSED_ETC1_RGB))
+    if ((!RLGL[currentContext].ExtSupported.texCompETC1) && (format == COMPRESSED_ETC1_RGB))
     {
         TRACELOG(LOG_WARNING, "GL: ETC1 compressed texture format not supported");
         return id;
     }
 
-    if ((!RLGL.ExtSupported.texCompETC2) && ((format == COMPRESSED_ETC2_RGB) || (format == COMPRESSED_ETC2_EAC_RGBA)))
+    if ((!RLGL[currentContext].ExtSupported.texCompETC2) && ((format == COMPRESSED_ETC2_RGB) || (format == COMPRESSED_ETC2_EAC_RGBA)))
     {
         TRACELOG(LOG_WARNING, "GL: ETC2 compressed texture format not supported");
         return id;
     }
 
-    if ((!RLGL.ExtSupported.texCompPVRT) && ((format == COMPRESSED_PVRT_RGB) || (format == COMPRESSED_PVRT_RGBA)))
+    if ((!RLGL[currentContext].ExtSupported.texCompPVRT) && ((format == COMPRESSED_PVRT_RGB) || (format == COMPRESSED_PVRT_RGBA)))
     {
         TRACELOG(LOG_WARNING, "GL: PVRT compressed texture format not supported");
         return id;
     }
 
-    if ((!RLGL.ExtSupported.texCompASTC) && ((format == COMPRESSED_ASTC_4x4_RGBA) || (format == COMPRESSED_ASTC_8x8_RGBA)))
+    if ((!RLGL[currentContext].ExtSupported.texCompASTC) && ((format == COMPRESSED_ASTC_4x4_RGBA) || (format == COMPRESSED_ASTC_8x8_RGBA)))
     {
         TRACELOG(LOG_WARNING, "GL: ASTC compressed texture format not supported");
         return id;
@@ -1989,7 +2000,7 @@ unsigned int rlLoadTexture(void *data, int width, int height, int format, int mi
     // NOTE: glTexParameteri does NOT affect texture uploading, just the way it's used
 #if defined(GRAPHICS_API_OPENGL_ES2)
     // NOTE: OpenGL ES 2.0 with no GL_OES_texture_npot support (i.e. WebGL) has limited NPOT support, so CLAMP_TO_EDGE must be used
-    if (RLGL.ExtSupported.texNPOT)
+    if (RLGL[currentContext].ExtSupported.texNPOT)
     {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);       // Set texture to repeat on x-axis
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);       // Set texture to repeat on y-axis
@@ -2047,7 +2058,7 @@ unsigned int rlLoadTextureDepth(int width, int height, int bits, bool useRenderB
 #if defined(GRAPHICS_API_OPENGL_33)
         glInternalFormat = GL_DEPTH_COMPONENT24;
 #elif defined(GRAPHICS_API_OPENGL_ES2)
-        if (RLGL.ExtSupported.maxDepthBits >= 24) glInternalFormat = GL_DEPTH_COMPONENT24_OES;
+        if (RLGL[currentContext].ExtSupported.maxDepthBits >= 24) glInternalFormat = GL_DEPTH_COMPONENT24_OES;
 #endif
     }
 
@@ -2056,11 +2067,11 @@ unsigned int rlLoadTextureDepth(int width, int height, int bits, bool useRenderB
 #if defined(GRAPHICS_API_OPENGL_33)
         glInternalFormat = GL_DEPTH_COMPONENT32;
 #elif defined(GRAPHICS_API_OPENGL_ES2)
-        if (RLGL.ExtSupported.maxDepthBits == 32) glInternalFormat = GL_DEPTH_COMPONENT32_OES;
+        if (RLGL[currentContext].ExtSupported.maxDepthBits == 32) glInternalFormat = GL_DEPTH_COMPONENT32_OES;
 #endif
     }
 
-    if (!useRenderBuffer && RLGL.ExtSupported.texDepth)
+    if (!useRenderBuffer && RLGL[currentContext].ExtSupported.texDepth)
     {
         glGenTextures(1, &id);
         glBindTexture(GL_TEXTURE_2D, id);
@@ -2181,9 +2192,9 @@ void rlGetGlTextureFormats(int format, unsigned int *glInternalFormat, unsigned 
         case UNCOMPRESSED_R4G4B4A4: *glInternalFormat = GL_RGBA; *glFormat = GL_RGBA; *glType = GL_UNSIGNED_SHORT_4_4_4_4; break;
         case UNCOMPRESSED_R8G8B8A8: *glInternalFormat = GL_RGBA; *glFormat = GL_RGBA; *glType = GL_UNSIGNED_BYTE; break;
         #if !defined(GRAPHICS_API_OPENGL_11)
-        case UNCOMPRESSED_R32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_LUMINANCE; *glFormat = GL_LUMINANCE; *glType = GL_FLOAT; break;   // NOTE: Requires extension OES_texture_float
-        case UNCOMPRESSED_R32G32B32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_RGB; *glFormat = GL_RGB; *glType = GL_FLOAT; break;         // NOTE: Requires extension OES_texture_float
-        case UNCOMPRESSED_R32G32B32A32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_RGBA; *glFormat = GL_RGBA; *glType = GL_FLOAT; break;    // NOTE: Requires extension OES_texture_float
+        case UNCOMPRESSED_R32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_LUMINANCE; *glFormat = GL_LUMINANCE; *glType = GL_FLOAT; break;   // NOTE: Requires extension OES_texture_float
+        case UNCOMPRESSED_R32G32B32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_RGB; *glFormat = GL_RGB; *glType = GL_FLOAT; break;         // NOTE: Requires extension OES_texture_float
+        case UNCOMPRESSED_R32G32B32A32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_RGBA; *glFormat = GL_RGBA; *glType = GL_FLOAT; break;    // NOTE: Requires extension OES_texture_float
         #endif
     #elif defined(GRAPHICS_API_OPENGL_33)
         case UNCOMPRESSED_GRAYSCALE: *glInternalFormat = GL_R8; *glFormat = GL_RED; *glType = GL_UNSIGNED_BYTE; break;
@@ -2193,22 +2204,22 @@ void rlGetGlTextureFormats(int format, unsigned int *glInternalFormat, unsigned 
         case UNCOMPRESSED_R5G5B5A1: *glInternalFormat = GL_RGB5_A1; *glFormat = GL_RGBA; *glType = GL_UNSIGNED_SHORT_5_5_5_1; break;
         case UNCOMPRESSED_R4G4B4A4: *glInternalFormat = GL_RGBA4; *glFormat = GL_RGBA; *glType = GL_UNSIGNED_SHORT_4_4_4_4; break;
         case UNCOMPRESSED_R8G8B8A8: *glInternalFormat = GL_RGBA8; *glFormat = GL_RGBA; *glType = GL_UNSIGNED_BYTE; break;
-        case UNCOMPRESSED_R32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_R32F; *glFormat = GL_RED; *glType = GL_FLOAT; break;
-        case UNCOMPRESSED_R32G32B32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_RGB32F; *glFormat = GL_RGB; *glType = GL_FLOAT; break;
-        case UNCOMPRESSED_R32G32B32A32: if (RLGL.ExtSupported.texFloat32) *glInternalFormat = GL_RGBA32F; *glFormat = GL_RGBA; *glType = GL_FLOAT; break;
+        case UNCOMPRESSED_R32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_R32F; *glFormat = GL_RED; *glType = GL_FLOAT; break;
+        case UNCOMPRESSED_R32G32B32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_RGB32F; *glFormat = GL_RGB; *glType = GL_FLOAT; break;
+        case UNCOMPRESSED_R32G32B32A32: if (RLGL[currentContext].ExtSupported.texFloat32) *glInternalFormat = GL_RGBA32F; *glFormat = GL_RGBA; *glType = GL_FLOAT; break;
     #endif
         #if !defined(GRAPHICS_API_OPENGL_11)
-        case COMPRESSED_DXT1_RGB: if (RLGL.ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGB_S3TC_DXT1_EXT; break;
-        case COMPRESSED_DXT1_RGBA: if (RLGL.ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT; break;
-        case COMPRESSED_DXT3_RGBA: if (RLGL.ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT3_EXT; break;
-        case COMPRESSED_DXT5_RGBA: if (RLGL.ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT; break;
-        case COMPRESSED_ETC1_RGB: if (RLGL.ExtSupported.texCompETC1) *glInternalFormat = GL_ETC1_RGB8_OES; break;                      // NOTE: Requires OpenGL ES 2.0 or OpenGL 4.3
-        case COMPRESSED_ETC2_RGB: if (RLGL.ExtSupported.texCompETC2) *glInternalFormat = GL_COMPRESSED_RGB8_ETC2; break;               // NOTE: Requires OpenGL ES 3.0 or OpenGL 4.3
-        case COMPRESSED_ETC2_EAC_RGBA: if (RLGL.ExtSupported.texCompETC2) *glInternalFormat = GL_COMPRESSED_RGBA8_ETC2_EAC; break;     // NOTE: Requires OpenGL ES 3.0 or OpenGL 4.3
-        case COMPRESSED_PVRT_RGB: if (RLGL.ExtSupported.texCompPVRT) *glInternalFormat = GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG; break;    // NOTE: Requires PowerVR GPU
-        case COMPRESSED_PVRT_RGBA: if (RLGL.ExtSupported.texCompPVRT) *glInternalFormat = GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG; break;  // NOTE: Requires PowerVR GPU
-        case COMPRESSED_ASTC_4x4_RGBA: if (RLGL.ExtSupported.texCompASTC) *glInternalFormat = GL_COMPRESSED_RGBA_ASTC_4x4_KHR; break;  // NOTE: Requires OpenGL ES 3.1 or OpenGL 4.3
-        case COMPRESSED_ASTC_8x8_RGBA: if (RLGL.ExtSupported.texCompASTC) *glInternalFormat = GL_COMPRESSED_RGBA_ASTC_8x8_KHR; break;  // NOTE: Requires OpenGL ES 3.1 or OpenGL 4.3
+        case COMPRESSED_DXT1_RGB: if (RLGL[currentContext].ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGB_S3TC_DXT1_EXT; break;
+        case COMPRESSED_DXT1_RGBA: if (RLGL[currentContext].ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT; break;
+        case COMPRESSED_DXT3_RGBA: if (RLGL[currentContext].ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT3_EXT; break;
+        case COMPRESSED_DXT5_RGBA: if (RLGL[currentContext].ExtSupported.texCompDXT) *glInternalFormat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT; break;
+        case COMPRESSED_ETC1_RGB: if (RLGL[currentContext].ExtSupported.texCompETC1) *glInternalFormat = GL_ETC1_RGB8_OES; break;                      // NOTE: Requires OpenGL ES 2.0 or OpenGL 4.3
+        case COMPRESSED_ETC2_RGB: if (RLGL[currentContext].ExtSupported.texCompETC2) *glInternalFormat = GL_COMPRESSED_RGB8_ETC2; break;               // NOTE: Requires OpenGL ES 3.0 or OpenGL 4.3
+        case COMPRESSED_ETC2_EAC_RGBA: if (RLGL[currentContext].ExtSupported.texCompETC2) *glInternalFormat = GL_COMPRESSED_RGBA8_ETC2_EAC; break;     // NOTE: Requires OpenGL ES 3.0 or OpenGL 4.3
+        case COMPRESSED_PVRT_RGB: if (RLGL[currentContext].ExtSupported.texCompPVRT) *glInternalFormat = GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG; break;    // NOTE: Requires PowerVR GPU
+        case COMPRESSED_PVRT_RGBA: if (RLGL[currentContext].ExtSupported.texCompPVRT) *glInternalFormat = GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG; break;  // NOTE: Requires PowerVR GPU
+        case COMPRESSED_ASTC_4x4_RGBA: if (RLGL[currentContext].ExtSupported.texCompASTC) *glInternalFormat = GL_COMPRESSED_RGBA_ASTC_4x4_KHR; break;  // NOTE: Requires OpenGL ES 3.1 or OpenGL 4.3
+        case COMPRESSED_ASTC_8x8_RGBA: if (RLGL[currentContext].ExtSupported.texCompASTC) *glInternalFormat = GL_COMPRESSED_RGBA_ASTC_8x8_KHR; break;  // NOTE: Requires OpenGL ES 3.1 or OpenGL 4.3
         #endif
         default: TRACELOG(LOG_WARNING, "TEXTURE: Current format not supported (%i)", format); break;
     }
@@ -2226,8 +2237,8 @@ RenderTexture2D rlLoadRenderTexture(int width, int height, int format, int depth
 {
     RenderTexture2D target = { 0 };
 
-#if (defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)) && defined(SUPPORT_RENDER_TEXTURES_HINT)
-    if (useDepthTexture && RLGL.ExtSupported.texDepth) target.depthTexture = true;
+#if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
+    if (useDepthTexture && RLGL[currentContext].ExtSupported.texDepth) target.depthTexture = true;
 
     // Create the framebuffer object
     glGenFramebuffers(1, &target.id);
@@ -2279,7 +2290,7 @@ RenderTexture2D rlLoadRenderTexture(int width, int height, int format, int depth
 // NOTE: Attach type: 0-Color, 1-Depth renderbuffer, 2-Depth texture
 void rlRenderTextureAttach(RenderTexture2D target, unsigned int id, int attachType)
 {
-#if (defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)) && defined(SUPPORT_RENDER_TEXTURES_HINT)
+#if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
     glBindFramebuffer(GL_FRAMEBUFFER, target.id);
 
     if (attachType == 0) glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, id, 0);
@@ -2298,7 +2309,7 @@ bool rlRenderTextureComplete(RenderTexture target)
 {
     bool result = false;
 
-#if (defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)) && defined(SUPPORT_RENDER_TEXTURES_HINT)
+#if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
     glBindFramebuffer(GL_FRAMEBUFFER, target.id);
 
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -2375,7 +2386,7 @@ void rlGenerateMipmaps(Texture2D *texture)
         else TRACELOG(LOG_WARNING, "TEXTURE: [ID %i] Failed to generate mipmaps for provided texture format", texture->id);
     }
 #elif defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if ((texIsPOT) || (RLGL.ExtSupported.texNPOT))
+    if ((texIsPOT) || (RLGL[currentContext].ExtSupported.texNPOT))
     {
         //glHint(GL_GENERATE_MIPMAP_HINT, GL_DONT_CARE);   // Hint for mipmaps generation algorythm: GL_FASTEST, GL_NICEST, GL_DONT_CARE
         glGenerateMipmap(GL_TEXTURE_2D);    // Generate mipmaps automatically
@@ -2418,7 +2429,7 @@ void rlLoadMesh(Mesh *mesh, bool dynamic)
     int drawHint = GL_STATIC_DRAW;
     if (dynamic) drawHint = GL_DYNAMIC_DRAW;
 
-    if (RLGL.ExtSupported.vao)
+    if (RLGL[currentContext].ExtSupported.vao)
     {
         // Initialize Quads VAO (Buffer A)
         glGenVertexArrays(1, &mesh->vaoId);
@@ -2512,7 +2523,7 @@ void rlLoadMesh(Mesh *mesh, bool dynamic)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh->triangleCount*3*sizeof(unsigned short), mesh->indices, drawHint);
     }
 
-    if (RLGL.ExtSupported.vao)
+    if (RLGL[currentContext].ExtSupported.vao)
     {
         if (mesh->vaoId > 0) TRACELOG(LOG_INFO, "VAO: [ID %i] Mesh uploaded successfully to VRAM (GPU)", mesh->vaoId);
         else TRACELOG(LOG_WARNING, "VAO: Failed to load mesh to VRAM (GPU)");
@@ -2533,7 +2544,7 @@ unsigned int rlLoadAttribBuffer(unsigned int vaoId, int shaderLoc, void *buffer,
     int drawHint = GL_STATIC_DRAW;
     if (dynamic) drawHint = GL_DYNAMIC_DRAW;
 
-    if (RLGL.ExtSupported.vao) glBindVertexArray(vaoId);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(vaoId);
 
     glGenBuffers(1, &id);
     glBindBuffer(GL_ARRAY_BUFFER, id);
@@ -2541,7 +2552,7 @@ unsigned int rlLoadAttribBuffer(unsigned int vaoId, int shaderLoc, void *buffer,
     glVertexAttribPointer(shaderLoc, 2, GL_FLOAT, 0, 0, 0);
     glEnableVertexAttribArray(shaderLoc);
 
-    if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
 #endif
 
     return id;
@@ -2560,7 +2571,7 @@ void rlUpdateMeshAt(Mesh mesh, int buffer, int count, int index)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
     // Activate mesh VAO
-    if (RLGL.ExtSupported.vao) glBindVertexArray(mesh.vaoId);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(mesh.vaoId);
 
     switch (buffer)
     {
@@ -2627,7 +2638,7 @@ void rlUpdateMeshAt(Mesh mesh, int buffer, int count, int index)
     }
 
     // Unbind the current VAO
-    if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
 
     // Another option would be using buffer mapping...
     //mesh.vertices = glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
@@ -2694,21 +2705,21 @@ void rlDrawMesh(Mesh mesh, Material material, Matrix transform)
                                                                (float)material.maps[MAP_SPECULAR].color.b/255.0f,
                                                                (float)material.maps[MAP_SPECULAR].color.a/255.0f);
 
-    if (material.shader.locs[LOC_MATRIX_VIEW] != -1) SetShaderValueMatrix(material.shader, material.shader.locs[LOC_MATRIX_VIEW], RLGL.State.modelview);
-    if (material.shader.locs[LOC_MATRIX_PROJECTION] != -1) SetShaderValueMatrix(material.shader, material.shader.locs[LOC_MATRIX_PROJECTION], RLGL.State.projection);
+    if (material.shader.locs[LOC_MATRIX_VIEW] != -1) SetShaderValueMatrix(material.shader, material.shader.locs[LOC_MATRIX_VIEW], RLGL[currentContext].State.modelview);
+    if (material.shader.locs[LOC_MATRIX_PROJECTION] != -1) SetShaderValueMatrix(material.shader, material.shader.locs[LOC_MATRIX_PROJECTION], RLGL[currentContext].State.projection);
 
     // At this point the modelview matrix just contains the view matrix (camera)
     // That's because BeginMode3D() sets it an no model-drawing function modifies it, all use rlPushMatrix() and rlPopMatrix()
-    Matrix matView = RLGL.State.modelview;         // View matrix (camera)
-    Matrix matProjection = RLGL.State.projection;  // Projection matrix (perspective)
+    Matrix matView = RLGL[currentContext].State.modelview;         // View matrix (camera)
+    Matrix matProjection = RLGL[currentContext].State.projection;  // Projection matrix (perspective)
 
-    // TODO: Consider possible transform matrices in the RLGL.State.stack
+    // TODO: Consider possible transform matrices in the RLGL[currentContext].State.stack
     // Is this the right order? or should we start with the first stored matrix instead of the last one?
     //Matrix matStackTransform = MatrixIdentity();
-    //for (int i = RLGL.State.stackCounter; i > 0; i--) matStackTransform = MatrixMultiply(RLGL.State.stack[i], matStackTransform);
+    //for (int i = RLGL[currentContext].State.stackCounter; i > 0; i--) matStackTransform = MatrixMultiply(RLGL[currentContext].State.stack[i], matStackTransform);
 
     // Transform to camera-space coordinates
-    Matrix matModelView = MatrixMultiply(transform, MatrixMultiply(RLGL.State.transform, matView));
+    Matrix matModelView = MatrixMultiply(transform, MatrixMultiply(RLGL[currentContext].State.transform, matView));
     //-----------------------------------------------------
 
     // Bind active texture maps (if available)
@@ -2725,7 +2736,7 @@ void rlDrawMesh(Mesh mesh, Material material, Matrix transform)
     }
 
     // Bind vertex array objects (or VBOs)
-    if (RLGL.ExtSupported.vao) glBindVertexArray(mesh.vaoId);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(mesh.vaoId);
     else
     {
         // Bind mesh VBO data: vertex position (shader-location = 0)
@@ -2785,18 +2796,18 @@ void rlDrawMesh(Mesh mesh, Material material, Matrix transform)
 
     int eyesCount = 1;
 #if defined(SUPPORT_VR_SIMULATOR)
-    if (RLGL.Vr.stereoRender) eyesCount = 2;
+    if (RLGL[currentContext].Vr.stereoRender) eyesCount = 2;
 #endif
 
     for (int eye = 0; eye < eyesCount; eye++)
     {
-        if (eyesCount == 1) RLGL.State.modelview = matModelView;
+        if (eyesCount == 1) RLGL[currentContext].State.modelview = matModelView;
         #if defined(SUPPORT_VR_SIMULATOR)
         else SetStereoView(eye, matProjection, matModelView);
         #endif
 
         // Calculate model-view-projection matrix (MVP)
-        Matrix matMVP = MatrixMultiply(RLGL.State.modelview, RLGL.State.projection);        // Transform to screen-space coordinates
+        Matrix matMVP = MatrixMultiply(RLGL[currentContext].State.modelview, RLGL[currentContext].State.projection);        // Transform to screen-space coordinates
 
         // Send combined model-view-projection matrix to shader
         glUniformMatrix4fv(material.shader.locs[LOC_MATRIX_MVP], 1, false, MatrixToFloat(matMVP));
@@ -2815,7 +2826,7 @@ void rlDrawMesh(Mesh mesh, Material material, Matrix transform)
     }
 
     // Unind vertex array objects (or VBOs)
-    if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
     else
     {
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -2825,10 +2836,10 @@ void rlDrawMesh(Mesh mesh, Material material, Matrix transform)
     // Unbind shader program
     glUseProgram(0);
 
-    // Restore RLGL.State.projection/RLGL.State.modelview matrices
+    // Restore RLGL[currentContext].State.projection/RLGL[currentContext].State.modelview matrices
     // NOTE: In stereo rendering matrices are being modified to fit every eye
-    RLGL.State.projection = matProjection;
-    RLGL.State.modelview = matView;
+    RLGL[currentContext].State.projection = matProjection;
+    RLGL[currentContext].State.modelview = matView;
 #endif
 }
 
@@ -2966,7 +2977,7 @@ Texture2D GetTextureDefault(void)
 {
     Texture2D texture = { 0 };
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    texture.id = RLGL.State.defaultTextureId;
+    texture.id = RLGL[currentContext].State.defaultTextureId;
     texture.width = 1;
     texture.height = 1;
     texture.mipmaps = 1;
@@ -2982,7 +2993,7 @@ Texture2D GetShapesTexture(void)
     Texture2D texture = { 0 };
     return texture;
 #else
-    return RLGL.State.shapesTexture;
+    return RLGL[currentContext].State.shapesTexture;
 #endif
 }
 
@@ -2993,7 +3004,7 @@ Rectangle GetShapesTextureRec(void)
     Rectangle rec = { 0 };
     return rec;
 #else
-    return RLGL.State.shapesTextureRec;
+    return RLGL[currentContext].State.shapesTextureRec;
 #endif
 }
 
@@ -3001,8 +3012,8 @@ Rectangle GetShapesTextureRec(void)
 void SetShapesTexture(Texture2D texture, Rectangle source)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    RLGL.State.shapesTexture = texture;
-    RLGL.State.shapesTextureRec = source;
+    RLGL[currentContext].State.shapesTexture = texture;
+    RLGL[currentContext].State.shapesTextureRec = source;
 #endif
 }
 
@@ -3010,7 +3021,7 @@ void SetShapesTexture(Texture2D texture, Rectangle source)
 Shader GetShaderDefault(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    return RLGL.State.defaultShader;
+    return RLGL[currentContext].State.defaultShader;
 #else
     Shader shader = { 0 };
     return shader;
@@ -3050,24 +3061,24 @@ Shader LoadShaderCode(const char *vsCode, const char *fsCode)
     for (int i = 0; i < MAX_SHADER_LOCATIONS; i++) shader.locs[i] = -1;
 
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    unsigned int vertexShaderId = RLGL.State.defaultVShaderId;
-    unsigned int fragmentShaderId = RLGL.State.defaultFShaderId;
+    unsigned int vertexShaderId = RLGL[currentContext].State.defaultVShaderId;
+    unsigned int fragmentShaderId = RLGL[currentContext].State.defaultFShaderId;
 
     if (vsCode != NULL) vertexShaderId = CompileShader(vsCode, GL_VERTEX_SHADER);
     if (fsCode != NULL) fragmentShaderId = CompileShader(fsCode, GL_FRAGMENT_SHADER);
 
-    if ((vertexShaderId == RLGL.State.defaultVShaderId) && (fragmentShaderId == RLGL.State.defaultFShaderId)) shader = RLGL.State.defaultShader;
+    if ((vertexShaderId == RLGL[currentContext].State.defaultVShaderId) && (fragmentShaderId == RLGL[currentContext].State.defaultFShaderId)) shader = RLGL[currentContext].State.defaultShader;
     else
     {
         shader.id = LoadShaderProgram(vertexShaderId, fragmentShaderId);
 
-        if (vertexShaderId != RLGL.State.defaultVShaderId) glDeleteShader(vertexShaderId);
-        if (fragmentShaderId != RLGL.State.defaultFShaderId) glDeleteShader(fragmentShaderId);
+        if (vertexShaderId != RLGL[currentContext].State.defaultVShaderId) glDeleteShader(vertexShaderId);
+        if (fragmentShaderId != RLGL[currentContext].State.defaultFShaderId) glDeleteShader(fragmentShaderId);
 
         if (shader.id == 0)
         {
             TRACELOG(LOG_WARNING, "SHADER: Failed to load custom shader code");
-            shader = RLGL.State.defaultShader;
+            shader = RLGL[currentContext].State.defaultShader;
         }
 
         // After shader loading, we TRY to set default location names
@@ -3115,10 +3126,10 @@ void UnloadShader(Shader shader)
 void BeginShaderMode(Shader shader)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.State.currentShader.id != shader.id)
+    if (RLGL[currentContext].State.currentShader.id != shader.id)
     {
         rlglDraw();
-        RLGL.State.currentShader = shader;
+        RLGL[currentContext].State.currentShader = shader;
     }
 #endif
 }
@@ -3127,7 +3138,7 @@ void BeginShaderMode(Shader shader)
 void EndShaderMode(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    BeginShaderMode(RLGL.State.defaultShader);
+    BeginShaderMode(RLGL[currentContext].State.defaultShader);
 #endif
 }
 
@@ -3203,7 +3214,7 @@ void SetShaderValueTexture(Shader shader, int uniformLoc, Texture2D texture)
 void SetMatrixProjection(Matrix projection)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    RLGL.State.projection = projection;
+    RLGL[currentContext].State.projection = projection;
 #endif
 }
 
@@ -3219,7 +3230,7 @@ Matrix GetMatrixProjection(void) {
     m.m12 = mat[12];    m.m13 = mat[13];    m.m14 = mat[14];    m.m15 = mat[15];
     return m;
 #else
-    return RLGL.State.projection;
+    return RLGL[currentContext].State.projection;
 #endif
 #
 }
@@ -3228,7 +3239,7 @@ Matrix GetMatrixProjection(void) {
 void SetMatrixModelview(Matrix view)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    RLGL.State.modelview = view;
+    RLGL[currentContext].State.modelview = view;
 #endif
 }
 
@@ -3244,7 +3255,7 @@ Matrix GetMatrixModelview(void)
     matrix.m8  = mat[8];     matrix.m9  = mat[9];     matrix.m10 = mat[10];    matrix.m11 = mat[11];
     matrix.m12 = mat[12];    matrix.m13 = mat[13];    matrix.m14 = mat[14];    matrix.m15 = mat[15];
 #else
-    matrix = RLGL.State.modelview;
+    matrix = RLGL[currentContext].State.modelview;
 #endif
     return matrix;
 }
@@ -3286,7 +3297,7 @@ Texture2D GenTextureCubemap(Shader shader, Texture2D map, int size)
 #if defined(GRAPHICS_API_OPENGL_33)
         glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB32F, size, size, 0, GL_RGB, GL_FLOAT, NULL);
 #elif defined(GRAPHICS_API_OPENGL_ES2)
-        if (RLGL.ExtSupported.texFloat32) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, size, size, 0, GL_RGB, GL_FLOAT, NULL);
+        if (RLGL[currentContext].ExtSupported.texFloat32) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, size, size, 0, GL_RGB, GL_FLOAT, NULL);
 #endif
     }
 
@@ -3331,7 +3342,7 @@ Texture2D GenTextureCubemap(Shader shader, Texture2D map, int size)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Reset viewport dimensions to default
-    glViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
+    glViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
     //glEnable(GL_CULL_FACE);
 
     // NOTE: Texture2D is a GL_TEXTURE_CUBE_MAP, not a GL_TEXTURE_2D!
@@ -3409,7 +3420,7 @@ Texture2D GenTextureIrradiance(Shader shader, Texture2D cubemap, int size)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Reset viewport dimensions to default
-    glViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
+    glViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
 
     irradiance.width = size;
     irradiance.height = size;
@@ -3504,7 +3515,7 @@ Texture2D GenTexturePrefilter(Shader shader, Texture2D cubemap, int size)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Reset viewport dimensions to default
-    glViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
+    glViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
 
     prefilter.width = size;
     prefilter.height = size;
@@ -3527,7 +3538,7 @@ Texture2D GenTextureBRDF(Shader shader, int size)
 #if defined(GRAPHICS_API_OPENGL_33)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, size, size, 0, GL_RGB, GL_FLOAT, NULL);
 #elif defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.ExtSupported.texFloat32) glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB, GL_FLOAT, NULL);
+    if (RLGL[currentContext].ExtSupported.texFloat32) glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB, GL_FLOAT, NULL);
 #endif
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -3561,7 +3572,7 @@ Texture2D GenTextureBRDF(Shader shader, int size)
     glDeleteFramebuffers(1, &fbo);
 
     // Reset viewport dimensions to default
-    glViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
+    glViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
 
     brdf.width = size;
     brdf.height = size;
@@ -3602,15 +3613,15 @@ void EndBlendMode(void)
 
 #if defined(SUPPORT_VR_SIMULATOR)
 // Init VR simulator for selected device parameters
-// NOTE: It modifies the global variable: RLGL.Vr.stereoFbo
+// NOTE: It modifies the global variable: RLGL[currentContext].Vr.stereoFbo
 void InitVrSimulator(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
     // Initialize framebuffer and textures for stereo rendering
     // NOTE: Screen size should match HMD aspect ratio
-    RLGL.Vr.stereoFbo = rlLoadRenderTexture(RLGL.State.framebufferWidth, RLGL.State.framebufferHeight, UNCOMPRESSED_R8G8B8A8, 24, false);
+    RLGL[currentContext].Vr.stereoFbo = rlLoadRenderTexture(RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight, UNCOMPRESSED_R8G8B8A8, 24, false);
 
-    RLGL.Vr.simulatorReady = true;
+    RLGL[currentContext].Vr.simulatorReady = true;
 #else
     TRACELOG(LOG_WARNING, "RLGL: VR Simulator not supported on OpenGL 1.1");
 #endif
@@ -3627,7 +3638,7 @@ void UpdateVrTracking(Camera *camera)
 void CloseVrSimulator(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.Vr.simulatorReady) rlDeleteRenderTextures(RLGL.Vr.stereoFbo);        // Unload stereo framebuffer and texture
+    if (RLGL[currentContext].Vr.simulatorReady) rlDeleteRenderTextures(RLGL[currentContext].Vr.stereoFbo);        // Unload stereo framebuffer and texture
 #endif
 }
 
@@ -3635,11 +3646,11 @@ void CloseVrSimulator(void)
 void SetVrConfiguration(VrDeviceInfo hmd, Shader distortion)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    // Reset RLGL.Vr.config for a new values assignment
-    memset(&RLGL.Vr.config, 0, sizeof(RLGL.Vr.config));
+    // Reset RLGL[currentContext].Vr.config for a new values assignment
+    memset(&RLGL[currentContext].Vr.config, 0, sizeof(RLGL[currentContext].Vr.config));
 
     // Assign distortion shader
-    RLGL.Vr.config.distortionShader = distortion;
+    RLGL[currentContext].Vr.config.distortionShader = distortion;
 
     // Compute aspect ratio
     float aspect = ((float)hmd.hResolution*0.5f)/(float)hmd.vResolution;
@@ -3681,37 +3692,37 @@ void SetVrConfiguration(VrDeviceInfo hmd, Shader distortion)
     // Compute camera projection matrices
     float projOffset = 4.0f*lensShift;      // Scaled to projection space coordinates [-1..1]
     Matrix proj = MatrixPerspective(fovy, aspect, RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);
-    RLGL.Vr.config.eyesProjection[0] = MatrixMultiply(proj, MatrixTranslate(projOffset, 0.0f, 0.0f));
-    RLGL.Vr.config.eyesProjection[1] = MatrixMultiply(proj, MatrixTranslate(-projOffset, 0.0f, 0.0f));
+    RLGL[currentContext].Vr.config.eyesProjection[0] = MatrixMultiply(proj, MatrixTranslate(projOffset, 0.0f, 0.0f));
+    RLGL[currentContext].Vr.config.eyesProjection[1] = MatrixMultiply(proj, MatrixTranslate(-projOffset, 0.0f, 0.0f));
 
     // Compute camera transformation matrices
     // NOTE: Camera movement might seem more natural if we model the head.
     // Our axis of rotation is the base of our head, so we might want to add
     // some y (base of head to eye level) and -z (center of head to eye protrusion) to the camera positions.
-    RLGL.Vr.config.eyesViewOffset[0] = MatrixTranslate(-hmd.interpupillaryDistance*0.5f, 0.075f, 0.045f);
-    RLGL.Vr.config.eyesViewOffset[1] = MatrixTranslate(hmd.interpupillaryDistance*0.5f, 0.075f, 0.045f);
+    RLGL[currentContext].Vr.config.eyesViewOffset[0] = MatrixTranslate(-hmd.interpupillaryDistance*0.5f, 0.075f, 0.045f);
+    RLGL[currentContext].Vr.config.eyesViewOffset[1] = MatrixTranslate(hmd.interpupillaryDistance*0.5f, 0.075f, 0.045f);
 
     // Compute eyes Viewports
-    RLGL.Vr.config.eyeViewportRight[2] = hmd.hResolution/2;
-    RLGL.Vr.config.eyeViewportRight[3] = hmd.vResolution;
+    RLGL[currentContext].Vr.config.eyeViewportRight[2] = hmd.hResolution/2;
+    RLGL[currentContext].Vr.config.eyeViewportRight[3] = hmd.vResolution;
 
-    RLGL.Vr.config.eyeViewportLeft[0] = hmd.hResolution/2;
-    RLGL.Vr.config.eyeViewportLeft[1] = 0;
-    RLGL.Vr.config.eyeViewportLeft[2] = hmd.hResolution/2;
-    RLGL.Vr.config.eyeViewportLeft[3] = hmd.vResolution;
+    RLGL[currentContext].Vr.config.eyeViewportLeft[0] = hmd.hResolution/2;
+    RLGL[currentContext].Vr.config.eyeViewportLeft[1] = 0;
+    RLGL[currentContext].Vr.config.eyeViewportLeft[2] = hmd.hResolution/2;
+    RLGL[currentContext].Vr.config.eyeViewportLeft[3] = hmd.vResolution;
 
-    if (RLGL.Vr.config.distortionShader.id > 0)
+    if (RLGL[currentContext].Vr.config.distortionShader.id > 0)
     {
         // Update distortion shader with lens and distortion-scale parameters
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "leftLensCenter"), leftLensCenter, UNIFORM_VEC2);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "rightLensCenter"), rightLensCenter, UNIFORM_VEC2);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "leftScreenCenter"), leftScreenCenter, UNIFORM_VEC2);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "rightScreenCenter"), rightScreenCenter, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "leftLensCenter"), leftLensCenter, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "rightLensCenter"), rightLensCenter, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "leftScreenCenter"), leftScreenCenter, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "rightScreenCenter"), rightScreenCenter, UNIFORM_VEC2);
 
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "scale"), scale, UNIFORM_VEC2);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "scaleIn"), scaleIn, UNIFORM_VEC2);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "hmdWarpParam"), hmd.lensDistortionValues, UNIFORM_VEC4);
-        SetShaderValue(RLGL.Vr.config.distortionShader, GetShaderLocation(RLGL.Vr.config.distortionShader, "chromaAbParam"), hmd.chromaAbCorrection, UNIFORM_VEC4);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "scale"), scale, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "scaleIn"), scaleIn, UNIFORM_VEC2);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "hmdWarpParam"), hmd.lensDistortionValues, UNIFORM_VEC4);
+        SetShaderValue(RLGL[currentContext].Vr.config.distortionShader, GetShaderLocation(RLGL[currentContext].Vr.config.distortionShader, "chromaAbParam"), hmd.chromaAbCorrection, UNIFORM_VEC4);
     }
 #endif
 }
@@ -3720,7 +3731,7 @@ void SetVrConfiguration(VrDeviceInfo hmd, Shader distortion)
 bool IsVrSimulatorReady(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    return RLGL.Vr.simulatorReady;
+    return RLGL[currentContext].Vr.simulatorReady;
 #else
     return false;
 #endif
@@ -3730,18 +3741,18 @@ bool IsVrSimulatorReady(void)
 void ToggleVrMode(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    RLGL.Vr.simulatorReady = !RLGL.Vr.simulatorReady;
+    RLGL[currentContext].Vr.simulatorReady = !RLGL[currentContext].Vr.simulatorReady;
 
-    if (!RLGL.Vr.simulatorReady)
+    if (!RLGL[currentContext].Vr.simulatorReady)
     {
-        RLGL.Vr.stereoRender = false;
+        RLGL[currentContext].Vr.stereoRender = false;
 
         // Reset viewport and default projection-modelview matrices
-        rlViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
-        RLGL.State.projection = MatrixOrtho(0.0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight, 0.0, 0.0, 1.0);
-        RLGL.State.modelview = MatrixIdentity();
+        rlViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
+        RLGL[currentContext].State.projection = MatrixOrtho(0.0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight, 0.0, 0.0, 1.0);
+        RLGL[currentContext].State.modelview = MatrixIdentity();
     }
-    else RLGL.Vr.stereoRender = true;
+    else RLGL[currentContext].Vr.stereoRender = true;
 #endif
 }
 
@@ -3749,15 +3760,15 @@ void ToggleVrMode(void)
 void BeginVrDrawing(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.Vr.simulatorReady)
+    if (RLGL[currentContext].Vr.simulatorReady)
     {
-        rlEnableRenderTexture(RLGL.Vr.stereoFbo.id);    // Setup framebuffer for stereo rendering
+        rlEnableRenderTexture(RLGL[currentContext].Vr.stereoFbo.id);    // Setup framebuffer for stereo rendering
         //glEnable(GL_FRAMEBUFFER_SRGB);        // Enable SRGB framebuffer (only if required)
 
         //glViewport(0, 0, buffer.width, buffer.height);    // Useful if rendering to separate framebuffers (every eye)
         rlClearScreenBuffers();                 // Clear current framebuffer
 
-        RLGL.Vr.stereoRender = true;
+        RLGL[currentContext].Vr.stereoRender = true;
     }
 #endif
 }
@@ -3766,29 +3777,29 @@ void BeginVrDrawing(void)
 void EndVrDrawing(void)
 {
 #if defined(GRAPHICS_API_OPENGL_33) || defined(GRAPHICS_API_OPENGL_ES2)
-    if (RLGL.Vr.simulatorReady)
+    if (RLGL[currentContext].Vr.simulatorReady)
     {
-        RLGL.Vr.stereoRender = false;         // Disable stereo render
+        RLGL[currentContext].Vr.stereoRender = false;         // Disable stereo render
 
         rlDisableRenderTexture();       // Unbind current framebuffer
 
         rlClearScreenBuffers();         // Clear current framebuffer
 
         // Set viewport to default framebuffer size (screen size)
-        rlViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
+        rlViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
 
         // Let rlgl reconfigure internal matrices
         rlMatrixMode(RL_PROJECTION);                            // Enable internal projection matrix
         rlLoadIdentity();                                       // Reset internal projection matrix
-        rlOrtho(0.0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight, 0.0, 0.0, 1.0); // Recalculate internal RLGL.State.projection matrix
+        rlOrtho(0.0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight, 0.0, 0.0, 1.0); // Recalculate internal RLGL[currentContext].State.projection matrix
         rlMatrixMode(RL_MODELVIEW);                             // Enable internal modelview matrix
         rlLoadIdentity();                                       // Reset internal modelview matrix
 
-        // Draw RenderTexture (RLGL.Vr.stereoFbo) using distortion shader if available
-        if (RLGL.Vr.config.distortionShader.id > 0) RLGL.State.currentShader = RLGL.Vr.config.distortionShader;
-        else RLGL.State.currentShader = GetShaderDefault();
+        // Draw RenderTexture (RLGL[currentContext].Vr.stereoFbo) using distortion shader if available
+        if (RLGL[currentContext].Vr.config.distortionShader.id > 0) RLGL[currentContext].State.currentShader = RLGL[currentContext].Vr.config.distortionShader;
+        else RLGL[currentContext].State.currentShader = GetShaderDefault();
 
-        rlEnableTexture(RLGL.Vr.stereoFbo.texture.id);
+        rlEnableTexture(RLGL[currentContext].Vr.stereoFbo.texture.id);
 
         rlPushMatrix();
             rlBegin(RL_QUADS);
@@ -3801,30 +3812,30 @@ void EndVrDrawing(void)
 
                 // Bottom-right corner for texture and quad
                 rlTexCoord2f(0.0f, 0.0f);
-                rlVertex2f(0.0f, (float)RLGL.Vr.stereoFbo.texture.height);
+                rlVertex2f(0.0f, (float)RLGL[currentContext].Vr.stereoFbo.texture.height);
 
                 // Top-right corner for texture and quad
                 rlTexCoord2f(1.0f, 0.0f);
-                rlVertex2f((float)RLGL.Vr.stereoFbo.texture.width, (float)RLGL.Vr.stereoFbo.texture.height);
+                rlVertex2f((float)RLGL[currentContext].Vr.stereoFbo.texture.width, (float)RLGL[currentContext].Vr.stereoFbo.texture.height);
 
                 // Top-left corner for texture and quad
                 rlTexCoord2f(1.0f, 1.0f);
-                rlVertex2f((float)RLGL.Vr.stereoFbo.texture.width, 0.0f);
+                rlVertex2f((float)RLGL[currentContext].Vr.stereoFbo.texture.width, 0.0f);
             rlEnd();
         rlPopMatrix();
 
         rlDisableTexture();
 
         // Update and draw render texture fbo with distortion to backbuffer
-        DrawRenderBatch(RLGL.currentBatch);
+        DrawRenderBatch(RLGL[currentContext].currentBatch);
 
-        // Restore RLGL.State.defaultShader
-        RLGL.State.currentShader = RLGL.State.defaultShader;
+        // Restore RLGL[currentContext].State.defaultShader
+        RLGL[currentContext].State.currentShader = RLGL[currentContext].State.defaultShader;
 
         // Reset viewport and default projection-modelview matrices
-        rlViewport(0, 0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight);
-        RLGL.State.projection = MatrixOrtho(0.0, RLGL.State.framebufferWidth, RLGL.State.framebufferHeight, 0.0, 0.0, 1.0);
-        RLGL.State.modelview = MatrixIdentity();
+        rlViewport(0, 0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight);
+        RLGL[currentContext].State.projection = MatrixOrtho(0.0, RLGL[currentContext].State.framebufferWidth, RLGL[currentContext].State.framebufferHeight, 0.0, 0.0, 1.0);
+        RLGL[currentContext].State.modelview = MatrixIdentity();
 
         rlDisableDepthTest();
     }
@@ -4001,10 +4012,10 @@ static Shader LoadShaderDefault(void)
     "}                                  \n";
 
     // NOTE: Compiled vertex/fragment shaders are kept for re-use
-    RLGL.State.defaultVShaderId = CompileShader(defaultVShaderStr, GL_VERTEX_SHADER);     // Compile default vertex shader
-    RLGL.State.defaultFShaderId = CompileShader(defaultFShaderStr, GL_FRAGMENT_SHADER);   // Compile default fragment shader
+    RLGL[currentContext].State.defaultVShaderId = CompileShader(defaultVShaderStr, GL_VERTEX_SHADER);     // Compile default vertex shader
+    RLGL[currentContext].State.defaultFShaderId = CompileShader(defaultFShaderStr, GL_FRAGMENT_SHADER);   // Compile default fragment shader
 
-    shader.id = LoadShaderProgram(RLGL.State.defaultVShaderId, RLGL.State.defaultFShaderId);
+    shader.id = LoadShaderProgram(RLGL[currentContext].State.defaultVShaderId, RLGL[currentContext].State.defaultFShaderId);
 
     if (shader.id > 0)
     {
@@ -4066,14 +4077,13 @@ static void UnloadShaderDefault(void)
 {
     glUseProgram(0);
 
-    glDetachShader(RLGL.State.defaultShader.id, RLGL.State.defaultVShaderId);
-    glDetachShader(RLGL.State.defaultShader.id, RLGL.State.defaultFShaderId);
-    glDeleteShader(RLGL.State.defaultVShaderId);
-    glDeleteShader(RLGL.State.defaultFShaderId);
+    glDetachShader(RLGL[currentContext].State.defaultShader.id, RLGL[currentContext].State.defaultVShaderId);
+    glDetachShader(RLGL[currentContext].State.defaultShader.id, RLGL[currentContext].State.defaultFShaderId);
+    glDeleteShader(RLGL[currentContext].State.defaultVShaderId);
+    glDeleteShader(RLGL[currentContext].State.defaultFShaderId);
 
-    glDeleteProgram(RLGL.State.defaultShader.id);
-
-    RL_FREE(RLGL.State.defaultShader.locs);
+    glDeleteProgram(RLGL[currentContext].State.defaultShader.id);
+    RL_FREE(RLGL[currentContext].State.defaultShader.locs);
 }
 
 // Load render batch
@@ -4129,7 +4139,7 @@ static RenderBatch LoadRenderBatch(int numBuffers, int bufferElements)
     //--------------------------------------------------------------------------------------------
     for (int i = 0; i < numBuffers; i++)
     {
-        if (RLGL.ExtSupported.vao)
+        if (RLGL[currentContext].ExtSupported.vao)
         {
             // Initialize Quads VAO
             glGenVertexArrays(1, &batch.vertexBuffer[i].vaoId);
@@ -4141,22 +4151,22 @@ static RenderBatch LoadRenderBatch(int numBuffers, int bufferElements)
         glGenBuffers(1, &batch.vertexBuffer[i].vboId[0]);
         glBindBuffer(GL_ARRAY_BUFFER, batch.vertexBuffer[i].vboId[0]);
         glBufferData(GL_ARRAY_BUFFER, bufferElements*3*4*sizeof(float), batch.vertexBuffer[i].vertices, GL_DYNAMIC_DRAW);
-        glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_POSITION]);
-        glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_POSITION], 3, GL_FLOAT, 0, 0, 0);
+        glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_POSITION]);
+        glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_POSITION], 3, GL_FLOAT, 0, 0, 0);
 
         // Vertex texcoord buffer (shader-location = 1)
         glGenBuffers(1, &batch.vertexBuffer[i].vboId[1]);
         glBindBuffer(GL_ARRAY_BUFFER, batch.vertexBuffer[i].vboId[1]);
         glBufferData(GL_ARRAY_BUFFER, bufferElements*2*4*sizeof(float), batch.vertexBuffer[i].texcoords, GL_DYNAMIC_DRAW);
-        glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_TEXCOORD01]);
-        glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_TEXCOORD01], 2, GL_FLOAT, 0, 0, 0);
+        glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_TEXCOORD01]);
+        glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_TEXCOORD01], 2, GL_FLOAT, 0, 0, 0);
 
         // Vertex color buffer (shader-location = 3)
         glGenBuffers(1, &batch.vertexBuffer[i].vboId[2]);
         glBindBuffer(GL_ARRAY_BUFFER, batch.vertexBuffer[i].vboId[2]);
         glBufferData(GL_ARRAY_BUFFER, bufferElements*4*4*sizeof(unsigned char), batch.vertexBuffer[i].colors, GL_DYNAMIC_DRAW);
-        glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_COLOR]);
-        glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_COLOR], 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, 0);
+        glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_COLOR]);
+        glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_COLOR], 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, 0);
 
         // Fill index buffer
         glGenBuffers(1, &batch.vertexBuffer[i].vboId[3]);
@@ -4171,7 +4181,7 @@ static RenderBatch LoadRenderBatch(int numBuffers, int bufferElements)
     TRACELOG(LOG_INFO, "RLGL: Render batch vertex buffers loaded successfully");
 
     // Unbind the current VAO
-    if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
     //--------------------------------------------------------------------------------------------
     
     // Init draw calls tracking system
@@ -4185,9 +4195,9 @@ static RenderBatch LoadRenderBatch(int numBuffers, int bufferElements)
         batch.draws[i].vertexAlignment = 0;
         //batch.draws[i].vaoId = 0;
         //batch.draws[i].shaderId = 0;
-        batch.draws[i].textureId = RLGL.State.defaultTextureId;
-        //batch.draws[i].RLGL.State.projection = MatrixIdentity();
-        //batch.draws[i].RLGL.State.modelview = MatrixIdentity();
+        batch.draws[i].textureId = RLGL[currentContext].State.defaultTextureId;
+        //batch.draws[i].RLGL[currentContext].State.projection = MatrixIdentity();
+        //batch.draws[i].RLGL[currentContext].State.modelview = MatrixIdentity();
     }
 
     batch.buffersCount = numBuffers;    // Record buffer count
@@ -4209,7 +4219,7 @@ static void DrawRenderBatch(RenderBatch *batch)
     if (batch->vertexBuffer[batch->currentBuffer].vCounter > 0)
     {
         // Activate elements VAO
-        if (RLGL.ExtSupported.vao) glBindVertexArray(batch->vertexBuffer[batch->currentBuffer].vaoId);
+        if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(batch->vertexBuffer[batch->currentBuffer].vaoId);
 
         // Vertex positions buffer
         glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[0]);
@@ -4242,18 +4252,18 @@ static void DrawRenderBatch(RenderBatch *batch)
         // glUnmapBuffer(GL_ARRAY_BUFFER);
 
         // Unbind the current VAO
-        if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+        if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
     }
     //------------------------------------------------------------------------------------------------------------
     
     // Draw batch vertex buffers (considering VR stereo if required)
     //------------------------------------------------------------------------------------------------------------
-    Matrix matProjection = RLGL.State.projection;
-    Matrix matModelView = RLGL.State.modelview;
+    Matrix matProjection = RLGL[currentContext].State.projection;
+    Matrix matModelView = RLGL[currentContext].State.modelview;
 
     int eyesCount = 1;
 #if defined(SUPPORT_VR_SIMULATOR)
-    if (RLGL.Vr.stereoRender) eyesCount = 2;
+    if (RLGL[currentContext].Vr.stereoRender) eyesCount = 2;
 #endif
 
     for (int eye = 0; eye < eyesCount; eye++)
@@ -4266,40 +4276,40 @@ static void DrawRenderBatch(RenderBatch *batch)
         if (batch->vertexBuffer[batch->currentBuffer].vCounter > 0)
         {
             // Set current shader and upload current MVP matrix
-            glUseProgram(RLGL.State.currentShader.id);
+            glUseProgram(RLGL[currentContext].State.currentShader.id);
 
             // Create modelview-projection matrix
-            Matrix matMVP = MatrixMultiply(RLGL.State.modelview, RLGL.State.projection);
+            Matrix matMVP = MatrixMultiply(RLGL[currentContext].State.modelview, RLGL[currentContext].State.projection);
 
-            glUniformMatrix4fv(RLGL.State.currentShader.locs[LOC_MATRIX_MVP], 1, false, MatrixToFloat(matMVP));
-            glUniform4f(RLGL.State.currentShader.locs[LOC_COLOR_DIFFUSE], 1.0f, 1.0f, 1.0f, 1.0f);
-            glUniform1i(RLGL.State.currentShader.locs[LOC_MAP_DIFFUSE], 0);    // Provided value refers to the texture unit (active)
+            glUniformMatrix4fv(RLGL[currentContext].State.currentShader.locs[LOC_MATRIX_MVP], 1, false, MatrixToFloat(matMVP));
+            glUniform4f(RLGL[currentContext].State.currentShader.locs[LOC_COLOR_DIFFUSE], 1.0f, 1.0f, 1.0f, 1.0f);
+            glUniform1i(RLGL[currentContext].State.currentShader.locs[LOC_MAP_DIFFUSE], 0);    // Provided value refers to the texture unit (active)
 
             // TODO: Support additional texture units on custom shader
-            //if (RLGL.State.currentShader->locs[LOC_MAP_SPECULAR] > 0) glUniform1i(RLGL.State.currentShader.locs[LOC_MAP_SPECULAR], 1);
-            //if (RLGL.State.currentShader->locs[LOC_MAP_NORMAL] > 0) glUniform1i(RLGL.State.currentShader.locs[LOC_MAP_NORMAL], 2);
+            //if (RLGL[currentContext].State.currentShader->locs[LOC_MAP_SPECULAR] > 0) glUniform1i(RLGL[currentContext].State.currentShader.locs[LOC_MAP_SPECULAR], 1);
+            //if (RLGL[currentContext].State.currentShader->locs[LOC_MAP_NORMAL] > 0) glUniform1i(RLGL[currentContext].State.currentShader.locs[LOC_MAP_NORMAL], 2);
 
             // NOTE: Right now additional map textures not considered for default buffers drawing
 
             int vertexOffset = 0;
 
-            if (RLGL.ExtSupported.vao) glBindVertexArray(batch->vertexBuffer[batch->currentBuffer].vaoId);
+            if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(batch->vertexBuffer[batch->currentBuffer].vaoId);
             else
             {
                 // Bind vertex attrib: position (shader-location = 0)
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[0]);
-                glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_POSITION], 3, GL_FLOAT, 0, 0, 0);
-                glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_POSITION]);
+                glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_POSITION], 3, GL_FLOAT, 0, 0, 0);
+                glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_POSITION]);
 
                 // Bind vertex attrib: texcoord (shader-location = 1)
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[1]);
-                glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_TEXCOORD01], 2, GL_FLOAT, 0, 0, 0);
-                glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_TEXCOORD01]);
+                glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_TEXCOORD01], 2, GL_FLOAT, 0, 0, 0);
+                glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_TEXCOORD01]);
 
                 // Bind vertex attrib: color (shader-location = 3)
                 glBindBuffer(GL_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[2]);
-                glVertexAttribPointer(RLGL.State.currentShader.locs[LOC_VERTEX_COLOR], 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, 0);
-                glEnableVertexAttribArray(RLGL.State.currentShader.locs[LOC_VERTEX_COLOR]);
+                glVertexAttribPointer(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_COLOR], 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, 0);
+                glEnableVertexAttribArray(RLGL[currentContext].State.currentShader.locs[LOC_VERTEX_COLOR]);
 
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batch->vertexBuffer[batch->currentBuffer].vboId[3]);
             }
@@ -4311,8 +4321,8 @@ static void DrawRenderBatch(RenderBatch *batch)
                 glBindTexture(GL_TEXTURE_2D, batch->draws[i].textureId);
 
                 // TODO: Find some way to bind additional textures --> Use global texture IDs? Register them on draw[i]?
-                //if (RLGL.State.currentShader->locs[LOC_MAP_SPECULAR] > 0) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, textureUnit1_id); }
-                //if (RLGL.State.currentShader->locs[LOC_MAP_SPECULAR] > 0) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, textureUnit2_id); }
+                //if (RLGL[currentContext].State.currentShader->locs[LOC_MAP_SPECULAR] > 0) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, textureUnit1_id); }
+                //if (RLGL[currentContext].State.currentShader->locs[LOC_MAP_SPECULAR] > 0) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, textureUnit2_id); }
 
                 if ((batch->draws[i].mode == RL_LINES) || (batch->draws[i].mode == RL_TRIANGLES)) glDrawArrays(batch->draws[i].mode, vertexOffset, batch->draws[i].vertexCount);
                 else
@@ -4330,7 +4340,7 @@ static void DrawRenderBatch(RenderBatch *batch)
                 vertexOffset += (batch->draws[i].vertexCount + batch->draws[i].vertexAlignment);
             }
 
-            if (!RLGL.ExtSupported.vao)
+            if (!RLGL[currentContext].ExtSupported.vao)
             {
                 glBindBuffer(GL_ARRAY_BUFFER, 0);
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -4339,7 +4349,7 @@ static void DrawRenderBatch(RenderBatch *batch)
             glBindTexture(GL_TEXTURE_2D, 0);    // Unbind textures
         }
 
-        if (RLGL.ExtSupported.vao) glBindVertexArray(0); // Unbind VAO
+        if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0); // Unbind VAO
 
         glUseProgram(0);    // Unbind shader program
     }
@@ -4356,15 +4366,15 @@ static void DrawRenderBatch(RenderBatch *batch)
     batch->currentDepth = -1.0f;
 
     // Restore projection/modelview matrices
-    RLGL.State.projection = matProjection;
-    RLGL.State.modelview = matModelView;
+    RLGL[currentContext].State.projection = matProjection;
+    RLGL[currentContext].State.modelview = matModelView;
 
-    // Reset RLGL.currentBatch->draws array
+    // Reset RLGL[currentContext].currentBatch->draws array
     for (int i = 0; i < DEFAULT_BATCH_DRAWCALLS; i++)
     {
         batch->draws[i].mode = RL_QUADS;
         batch->draws[i].vertexCount = 0;
-        batch->draws[i].textureId = RLGL.State.defaultTextureId;
+        batch->draws[i].textureId = RLGL[currentContext].State.defaultTextureId;
     }
 
     batch->drawsCounter = 1;
@@ -4379,7 +4389,7 @@ static void DrawRenderBatch(RenderBatch *batch)
 static void UnloadRenderBatch(RenderBatch batch)
 {
     // Unbind everything
-    if (RLGL.ExtSupported.vao) glBindVertexArray(0);
+    if (RLGL[currentContext].ExtSupported.vao) glBindVertexArray(0);
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
     glDisableVertexAttribArray(2);
@@ -4397,7 +4407,7 @@ static void UnloadRenderBatch(RenderBatch batch)
         glDeleteBuffers(1, &batch.vertexBuffer[i].vboId[3]);
 
         // Delete VAOs from GPU (VRAM)
-        if (RLGL.ExtSupported.vao) glDeleteVertexArrays(1, &batch.vertexBuffer[i].vaoId);
+        if (RLGL[currentContext].ExtSupported.vao) glDeleteVertexArrays(1, &batch.vertexBuffer[i].vaoId);
 
         // Free vertex arrays memory from CPU (RAM)
         RL_FREE(batch.vertexBuffer[i].vertices);
@@ -4414,15 +4424,15 @@ static void UnloadRenderBatch(RenderBatch batch)
 // Set the active render batch for rlgl
 static void SetRenderBatchActive(RenderBatch *batch)
 {
-    DrawRenderBatch(RLGL.currentBatch);
-    RLGL.currentBatch = batch;
+    DrawRenderBatch(RLGL[currentContext].currentBatch);
+    RLGL[currentContext].currentBatch = batch;
 }
 
 // Set default render batch for rlgl
 static void SetRenderBatchDefault(void)
 {
-    DrawRenderBatch(RLGL.currentBatch);
-    RLGL.currentBatch = &RLGL.defaultBatch;
+    DrawRenderBatch(RLGL[currentContext].currentBatch);
+    RLGL[currentContext].currentBatch = &RLGL[currentContext].defaultBatch;
 }
 
 // Renders a 1x1 XY quad in NDC
@@ -4544,13 +4554,13 @@ static void SetStereoView(int eye, Matrix matProjection, Matrix matModelView)
     Matrix eyeModelView = matModelView;
 
     // Setup viewport and projection/modelview matrices using tracking data
-    rlViewport(eye*RLGL.State.framebufferWidth/2, 0, RLGL.State.framebufferWidth/2, RLGL.State.framebufferHeight);
+    rlViewport(eye*RLGL[currentContext].State.framebufferWidth/2, 0, RLGL[currentContext].State.framebufferWidth/2, RLGL[currentContext].State.framebufferHeight);
 
     // Apply view offset to modelview matrix
-    eyeModelView = MatrixMultiply(matModelView, RLGL.Vr.config.eyesViewOffset[eye]);
+    eyeModelView = MatrixMultiply(matModelView, RLGL[currentContext].Vr.config.eyesViewOffset[eye]);
 
     // Set current eye projection matrix
-    eyeProjection = RLGL.Vr.config.eyesProjection[eye];
+    eyeProjection = RLGL[currentContext].Vr.config.eyesProjection[eye];
 
     SetMatrixModelview(eyeModelView);
     SetMatrixProjection(eyeProjection);
